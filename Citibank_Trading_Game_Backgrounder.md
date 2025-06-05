@@ -69,11 +69,11 @@
 8. **House cut**: percentage of total trading volume, configurable per room.
 
 ---
+## References
 
-## References  
+[1]: Gary Stevenson, *The Trading Game: A Confession* (2024).  
+[2]: Stevenson interview excerpts on Citibank’s recruitment game (various podcasts, 2023–2024).  
+[3]: *New Statesman* review of *The Trading Game* (2024).  
+[4]: Medium/Blinkist summaries of Stevenson’s memoir (2024).
 
-[^1]: Gary Stevenson, *The Trading Game: A Confession* (2024).  
-[^2]: Stevenson interview excerpts on Citibank’s recruitment game (various podcasts, 2023-2024).  
-[^3]: *New Statesman* review of *The Trading Game* (2024).  
-[^4]: Medium/Blinkist summaries of Stevenson’s memoir (2024).
 
