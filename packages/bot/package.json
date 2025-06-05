@@ -1,0 +1,23 @@
+{
+  "name": "@trading-game/bot",
+  "version": "0.0.1",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@trading-game/core": "workspace:*",
+    "@trading-game/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^1.5.0",
+    "seedrandom": "^3.0.5"
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./dist/index.js"
+  }
+}
