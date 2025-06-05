@@ -1,0 +1,16 @@
+{
+  "name": "@trading-game/contract",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test"
+  },
+  "devDependencies": {
+    "hardhat": "^2.22.1",
+    "@nomiclabs/hardhat-ethers": "^2.2.2",
+    "ethers": "^5.7.2",
+    "@openzeppelin/contracts": "^5.0.1",
+    "typescript": "^5.4.0"
+  }
+}
