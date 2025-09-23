@@ -89,7 +89,7 @@ vercel --prod
 ### Required for Development
 ```env
 # ElevenLabs Voice API
-VITE_ELEVENLABS_API_KEY=sk_f85aef54491c196dc5e4c171cd5fdfc828d85e914f37309
+VITE_ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
 
 # Firebase Configuration
 VITE_FIREBASE_API_KEY=
