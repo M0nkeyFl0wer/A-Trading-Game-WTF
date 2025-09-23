@@ -4,12 +4,15 @@ import { useGameStore } from '../store';
 import CreateTableModal from '../ui/CreateTableModal';
 import ConnectWalletButton from '../ui/ConnectWalletButton';
 import VoiceControls from '../ui/VoiceControls';
+import CharacterGallery from '../ui/CharacterGallery';
 import { voiceService } from '../lib/elevenlabs';
+import { CharacterType } from '../lib/characterVisuals';
 
 export default function LobbyPage() {
   const startRound = useGameStore(s => s.startRound);
   const [tables, setTables] = useState<{id:number}[]>([]);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [selectedCharacter, setSelectedCharacter] = useState<CharacterType>('DEALER');
 
   useEffect(() => {
     // TODO: fetch tables via websocket
@@ -32,13 +35,22 @@ export default function LobbyPage() {
   };
 
   return (
-    <div className="lobby" style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
+    <div className="lobby" style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px' }}>
         <h1 style={{ fontSize: '2.5rem', fontWeight: 'bold' }}>🎰 Trading Game Lobby</h1>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           <ConnectWalletButton />
         </div>
       </header>
+
+      {/* Character Selection Gallery */}
+      <div style={{ marginBottom: '40px' }}>
+        <CharacterGallery
+          selectedCharacter={selectedCharacter}
+          onCharacterSelect={setSelectedCharacter}
+          enableVoice={voiceEnabled}
+        />
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '30px' }}>
         <div>
