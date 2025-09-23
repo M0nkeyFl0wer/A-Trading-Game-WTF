@@ -7,10 +7,11 @@
     "test": "hardhat test"
   },
   "devDependencies": {
-    "hardhat": "^2.22.1",
     "@nomiclabs/hardhat-ethers": "^2.2.2",
-    "ethers": "^5.7.2",
     "@openzeppelin/contracts": "^5.0.1",
+    "ethers": "^5.7.2",
+    "hardhat": "^2.22.1",
+    "ts-node": "^10.9.2",
     "typescript": "^5.4.0"
   }
 }

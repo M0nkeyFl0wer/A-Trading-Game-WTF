@@ -1,0 +1,33 @@
+{
+  "framework": "vite",
+  "buildCommand": "pnpm -r build && pnpm --filter @trading-game/web build",
+  "installCommand": "pnpm install",
+  "outputDirectory": "apps/web/dist",
+  "env": {
+    "VITE_ELEVENLABS_API_KEY": "@elevenlabs_api_key",
+    "VITE_WALLET_CONNECT_PROJECT_ID": "@wallet_connect_project_id",
+    "VITE_ALCHEMY_API_KEY": "@alchemy_api_key",
+    "VITE_FIREBASE_API_KEY": "@firebase_api_key",
+    "VITE_FIREBASE_AUTH_DOMAIN": "@firebase_auth_domain",
+    "VITE_FIREBASE_PROJECT_ID": "@firebase_project_id",
+    "VITE_FIREBASE_STORAGE_BUCKET": "@firebase_storage_bucket",
+    "VITE_FIREBASE_MESSAGING_SENDER_ID": "@firebase_messaging_sender_id",
+    "VITE_FIREBASE_APP_ID": "@firebase_app_id"
+  },
+  "build": {
+    "env": {
+      "NODE_OPTIONS": "--max-old-space-size=4096"
+    }
+  },
+  "functions": {
+    "api/*.ts": {
+      "runtime": "nodejs20.x"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

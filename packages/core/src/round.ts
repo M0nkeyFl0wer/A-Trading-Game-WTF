@@ -1,5 +1,6 @@
-import { DeckValue, DEFAULT_TICK_PRESETS } from '@trading-game/shared';
-import { Card, Player, Table, Trade } from './types';
+import type { DeckValue } from '@trading-game/shared';
+import { DEFAULT_TICK_PRESETS } from '@trading-game/shared';
+import type { Card, Player, Table, Trade } from './types';
 
 export type RoundState = 'deal' | 'trading' | 'reveal' | 'settle';
 
