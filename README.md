@@ -1,70 +1,261 @@
+# 🎰 The Trading Game – Open Strategy Project
 
-# The Trading Game – Open Strategy Project
+A **voice-enabled**, **character-driven** trading game that brings markets to life through personality, sound, and social play. Learn trading through interactive characters who speak, react, and guide you through the excitement of the trading floor.
 
-A minimalist, accessible version of Gary Stevenson's iconic trading game – designed to teach math, strategy, and trading instincts through social play.
+[![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://choosealicense.com/licenses/mit/)
+[![React](https://img.shields.io/badge/React-18.2-blue.svg)](https://reactjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)](https://www.typescriptlang.org/)
+[![pnpm](https://img.shields.io/badge/pnpm-workspace-orange.svg)](https://pnpm.io/)
 
-## Vision
-Make trading fun, social, and educational. Strip away the jargon and show people how markets work with cards, friends, and quick rounds of bluffing, betting, and psychology.
+## 🎮 Play Now
 
-## MVP Components
+**Development Server Running**: http://localhost:3001
 
-### A. Physical Card Game (Print-on-Demand)
-- **17 Custom Cards**: Values -10, 1–15, 20
-- **Fold-out Trade Tracker Sheet**
-- **Printed Instructions (with QR code to online guide)**
-- **Tuck Box or Minimal Packaging**
-- **Educational focus**: Helps build number sense, probability intuition, and strategic thinking
+## ✨ Features
 
-### B. Online Game (Browser-Based)
-- **Solo or 2–5 player mode**
-- **See your card, make offers, buy/sell**
-- **Track trades and reveal total**
-- **Built in React or HTML/JS + Firebase (or socket.io)**
-- **Mobile-friendly & sharable**
-- **Game log and scoring**
+### 🎙️ **Voice-Enabled Characters**
+- **5 Unique Trading Personalities** with distinct voices via ElevenLabs API
+- Real-time voice announcements for game events
+- Character catchphrases and contextual dialogue
+- Emotional voice tones matching game situations
 
----
+### 🎭 **Visual Character System**
+- **Animated Character Avatars** with 8 expressions each
+- Dynamic particle effects and animations
+- Expression changes based on game events
+- Interactive character selection gallery
 
-## Stretch Goals
+### 🎯 **Game Modes**
+- **Physical Card Game**: 17 custom cards with values from -10 to 20
+- **Online Multiplayer**: Real-time trading with 2-5 players
+- **Solo Practice**: Play against AI personalities
+- **Web3 Integration**: Optional crypto-backed micro-stakes (coming soon)
 
-### 1. Mobile App Version
-- Android/iOS version
-- Push notifications for turns
-- AI opponents with personality profiles
+### 🔥 **Production-Ready Infrastructure**
+- Firebase Authentication & Real-time Database
+- Socket.io for multiplayer functionality
+- CI/CD with GitHub Actions
+- Vercel deployment configuration
+- Environment-based configuration
 
-### 2. Educational Mode
-- Hints and guided play for students
-- Optional visible odds tracker and graph
-- Teacher/classroom tools
+## 🚀 Quick Start
 
-### 3. Crypto-Backed Version (Web3)
-- Trades placed with micro crypto stakes (e.g. USDC, ETH)
-- Winners paid out automatically
-- Potential DAO governance or leaderboard prizes
+### Prerequisites
+- Node.js 18+
+- pnpm (`npm install -g pnpm`)
+- Git
 
-#### Security Considerations:
-- Use audited smart contracts for holding and settling stakes
-- Avoid custody: connect wallets via MetaMask or WalletConnect
-- Limit risk with wager caps and opt-in betting
-- Add identity protections (e.g. anonymous play, reputation system)
-- Regulatory review for KYC/AML depending on payout method and region
+### Installation
 
----
+```bash
+# Clone the repository
+git clone https://github.com/M0nkeyFl0wer/A-Trading-Game-WTF.git
+cd A-Trading-Game-WTF
 
-## Folder Structure
+# Install dependencies
+pnpm install
+
+# Build workspace packages
+pnpm --filter @trading-game/shared build
+pnpm --filter @trading-game/core build
+pnpm --filter @trading-game/bot build
+
+# Set up environment variables
+cp apps/web/.env.example apps/web/.env
+# Edit .env with your API keys
+```
+
+### Required API Keys
+
+1. **ElevenLabs API** (for voice features)
+   - Get your key at: https://elevenlabs.io
+   - Add to `.env`: `VITE_ELEVENLABS_API_KEY=your_key`
+
+2. **Firebase** (for authentication & database)
+   - Create project at: https://console.firebase.google.com
+   - Enable Authentication and Realtime Database
+   - Add Firebase config to `.env`
+
+### Development
+
+```bash
+# Start development server
+cd apps/web
+pnpm dev
+
+# Access at http://localhost:3000
+```
+
+## 🎨 Meet the Characters
+
+### 🎰 **The Dealer**
+- **Personality**: Professional, neutral, authoritative
+- **Voice Style**: Calm and measured
+- **Catchphrase**: "The market waits for no one"
+
+### 🐂 **Bull Runner**
+- **Personality**: Optimistic, aggressive, risk-taker
+- **Voice Style**: Excited and confident
+- **Catchphrase**: "To the moon!"
+
+### 🐻 **Bear Necessities**
+- **Personality**: Pessimistic, analytical, conservative
+- **Voice Style**: Cautious and skeptical
+- **Catchphrase**: "The crash is coming"
+
+### 🐋 **The Whale**
+- **Personality**: Mysterious, strategic, influential
+- **Voice Style**: Deep and commanding
+- **Catchphrase**: "I move markets"
+
+### 👶 **Fresh Trader**
+- **Personality**: Naive, enthusiastic, learning
+- **Voice Style**: Young and energetic
+- **Catchphrase**: "YOLO!"
+
+## 🏗️ Architecture
 
 ```
-trading-game/
-├── physical/
-│   ├── card_designs/
-│   ├── trade_log_sheet.pdf
-│   └── instructions_foldout.pdf
-├── online/
-│   ├── public/
-│   ├── src/
-│   └── README.md (dev setup for online game)
-└── README.md (this file)
+A-Trading-Game-WTF/
+├── apps/
+│   └── web/                    # React web application
+│       ├── src/
+│       │   ├── lib/            # Core libraries
+│       │   │   ├── elevenlabs.ts      # Voice integration
+│       │   │   ├── firebase.ts        # Firebase config
+│       │   │   ├── gameRoom.ts        # Multiplayer logic
+│       │   │   └── characterVisuals.ts # Visual system
+│       │   ├── ui/             # UI components
+│       │   │   ├── VoiceControls.tsx
+│       │   │   ├── CharacterAvatar.tsx
+│       │   │   └── CharacterGallery.tsx
+│       │   ├── hooks/          # Custom React hooks
+│       │   ├── pages/          # Page components
+│       │   └── contexts/       # React contexts
+├── packages/                    # Shared packages
+│   ├── shared/                 # Shared types & utils
+│   ├── core/                   # Game logic
+│   ├── bot/                    # AI players
+│   └── contract/              # Smart contracts
+├── api/                        # Serverless functions
+├── .github/workflows/          # CI/CD pipelines
+└── vercel.json                # Deployment config
 ```
 
-## License
+## 🔊 Voice Integration
+
+The game features full voice integration with:
+- **Pre-game lobby announcements**
+- **Round start/end notifications**
+- **Trade confirmations**
+- **Win/loss reactions**
+- **Character-specific commentary**
+
+### Voice Control Features:
+- Toggle on/off
+- Volume control
+- Character selection
+- Manual phrase triggering
+- Queue management for sequential dialogue
+
+## 🎮 Gameplay
+
+### Basic Rules:
+1. Each player receives one card (value: -10 to 20)
+2. Players trade shares based on expected total
+3. Market value = Sum of all cards ÷ Number of players
+4. Winners profit from accurate predictions
+
+### Game Flow:
+1. **Deal Phase**: Cards distributed
+2. **Trading Phase**: 2-minute trading window
+3. **Reveal Phase**: Cards shown, market value calculated
+4. **Settlement Phase**: Profits/losses determined
+
+## 🚀 Deployment
+
+### Vercel Deployment
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Deploy to production
+vercel --prod
+```
+
+### Environment Variables (Vercel Dashboard):
+- `VITE_ELEVENLABS_API_KEY`
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- All other Firebase config vars
+
+## 🧪 Testing
+
+```bash
+# Run tests
+pnpm test
+
+# Run with coverage
+pnpm test:coverage
+```
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add AmazingFeature'`)
+4. Push to branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## 📋 Roadmap
+
+### ✅ Completed
+- [x] Voice-enabled characters with ElevenLabs
+- [x] Visual character system with animations
+- [x] Firebase authentication
+- [x] Real-time multiplayer infrastructure
+- [x] CI/CD pipeline
+- [x] Vercel deployment configuration
+
+### 🚧 In Progress
+- [ ] Complete game logic implementation
+- [ ] Mobile responsive design
+- [ ] Comprehensive test coverage
+
+### 📅 Planned
+- [ ] AI opponent personalities
+- [ ] Tournament mode
+- [ ] Leaderboards
+- [ ] Educational tutorials
+- [ ] Mobile app (React Native)
+- [ ] Web3 micro-stakes integration
+
+## 🔒 Security
+
+- Environment variables for sensitive data
+- Firebase security rules
+- Input validation
+- Rate limiting (planned)
+- Secure WebSocket connections
+
+## 📄 License
+
 MIT License – Open source for public learning and remixing.
+
+## 🙏 Acknowledgments
+
+- Gary Stevenson for the original trading game concept
+- ElevenLabs for voice synthesis API
+- Firebase for backend infrastructure
+- Vercel for deployment platform
+
+## 📞 Support
+
+- **Issues**: https://github.com/M0nkeyFl0wer/A-Trading-Game-WTF/issues
+- **Discussions**: https://github.com/M0nkeyFl0wer/A-Trading-Game-WTF/discussions
+
+---
+
+**Built with ❤️ and 🎙️ voices by the community**
