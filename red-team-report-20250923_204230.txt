@@ -1,0 +1,40 @@
+[20:42:31] Server Running: PASS - Expected 200, got 200
+[20:42:31] Page Load Time: PASS - Response time: 428.525000ms (max: 3000ms)
+[20:42:31] XSS Test: PASS - Payload blocked: <script>alert('XSS')</script>...
+[20:42:31] XSS Test: PASS - Payload blocked: <img src=x onerror='alert(1)'>...
+[20:42:31] XSS Test: PASS - Payload blocked: javascript:alert('XSS')...
+[20:42:31] Injection Test: PASS - Payload blocked: ' OR '1'='1...
+[20:42:31] Injection Test: PASS - Payload blocked: admin'--...
+[20:42:32] Injection Test: PASS - Payload blocked: {"$ne": null}...
+[20:42:35] Rate Limiting: FAIL - No rate limiting after 150 requests
+[20:42:35] Security Header: FAIL - X-Content-Type-Options missing
+[20:42:35] Security Header: FAIL - X-Frame-Options missing
+[20:42:35] Security Header: FAIL - X-XSS-Protection missing
+[20:42:35] Security Header: FAIL - Content-Security-Policy missing
+[20:42:35] Health Check: PASS - Expected 200, got 200
+[20:42:35] Login Endpoint (GET): FAIL - Expected 405, got 200
+[20:42:35] 404 Handling: FAIL - Expected 404, got 200
+[20:42:35] CORS Test: WARN - No CORS headers found
+[20:42:35] Static Asset: WARN - /favicon.ico missing (UX issue)
+[20:42:35] Static Asset: PASS - /manifest.json found
+[20:42:35] Static Asset: PASS - /robots.txt found
+[20:42:35] Page Size: PASS - 0KB (optimized)
+[20:42:35] Character List: PASS - Expected 200, got 200
+[20:42:35] Room List: PASS - Expected 200, got 200
+[20:42:36] Bot Strategies (Auth Required): FAIL - Expected 401, got 200
+[20:42:36] WebSocket: SKIP - websocat not installed
+[20:42:36] Concurrent Requests: PASS - Handled 10 simultaneous requests
+
+[0;34m=== RECOMMENDATIONS ===[0m
+Priority fixes needed:
+  - [20:42:35] Rate Limiting: FAIL - No rate limiting after 150 requests
+  - [20:42:35] Security Header: FAIL - X-Content-Type-Options missing
+  - [20:42:35] Security Header: FAIL - X-Frame-Options missing
+  - [20:42:35] Security Header: FAIL - X-XSS-Protection missing
+  - [20:42:35] Security Header: FAIL - Content-Security-Policy missing
+
+Improvements suggested:
+  - [20:42:35] CORS Test: WARN - No CORS headers found
+  - [20:42:35] Static Asset: WARN - /favicon.ico missing (UX issue)
+
+[0;32mAssessment completed at Tue Sep 23 20:42:36 EDT 2025[0m

@@ -1,0 +1,134 @@
+{
+  "timestamp": "2025-09-24T02:40:09.394Z",
+  "target": "http://localhost:3001",
+  "tests": [
+    {
+      "test": "Page Load Time",
+      "status": "PASS",
+      "message": "83ms (target: <3000ms)",
+      "timestamp": "2025-09-24T02:40:09.481Z"
+    },
+    {
+      "test": "HTML Document",
+      "status": "PASS",
+      "message": "Valid HTML5 document",
+      "timestamp": "2025-09-24T02:40:09.481Z"
+    },
+    {
+      "test": "DOM: Page Title",
+      "status": "PASS",
+      "message": "Found 1 elements",
+      "timestamp": "2025-09-24T02:40:09.621Z"
+    },
+    {
+      "test": "DOM: Mobile Viewport",
+      "status": "PASS",
+      "message": "Found 1 elements",
+      "timestamp": "2025-09-24T02:40:09.625Z"
+    },
+    {
+      "test": "DOM: Character Selection",
+      "status": "FAIL",
+      "message": "Required element missing",
+      "timestamp": "2025-09-24T02:40:09.628Z"
+    },
+    {
+      "test": "DOM: Interactive Buttons",
+      "status": "FAIL",
+      "message": "Required element missing",
+      "timestamp": "2025-09-24T02:40:09.629Z"
+    },
+    {
+      "test": "DOM: Animation Canvas",
+      "status": "WARN",
+      "message": "Optional element missing",
+      "timestamp": "2025-09-24T02:40:09.630Z"
+    },
+    {
+      "test": "DOM: Voice Controls",
+      "status": "WARN",
+      "message": "Optional element missing",
+      "timestamp": "2025-09-24T02:40:09.631Z"
+    },
+    {
+      "test": "A11Y: Image Alt Text",
+      "status": "PASS",
+      "message": "All images have alt attributes",
+      "timestamp": "2025-09-24T02:40:09.637Z"
+    },
+    {
+      "test": "A11Y: Form Labels",
+      "status": "WARN",
+      "message": "No form inputs found",
+      "timestamp": "2025-09-24T02:40:09.637Z"
+    },
+    {
+      "test": "A11Y: Heading Structure",
+      "status": "WARN",
+      "message": "No headings found",
+      "timestamp": "2025-09-24T02:40:09.638Z"
+    },
+    {
+      "test": "Responsive: Viewport Meta",
+      "status": "PASS",
+      "message": "Viewport meta tag present",
+      "timestamp": "2025-09-24T02:40:09.638Z"
+    },
+    {
+      "test": "Responsive: CSS Features",
+      "status": "WARN",
+      "message": "Only 0/5 responsive patterns found",
+      "timestamp": "2025-09-24T02:40:09.639Z"
+    },
+    {
+      "test": "Performance: Page Size",
+      "status": "PASS",
+      "message": "1KB (efficient)",
+      "timestamp": "2025-09-24T02:40:09.639Z"
+    },
+    {
+      "test": "Performance: Code Quality",
+      "status": "PASS",
+      "message": "No performance anti-patterns detected",
+      "timestamp": "2025-09-24T02:40:09.639Z"
+    },
+    {
+      "test": "Game: Character System",
+      "status": "WARN",
+      "message": "0/5 characters found in DOM",
+      "timestamp": "2025-09-24T02:40:09.657Z"
+    },
+    {
+      "test": "Game: Trading Interface",
+      "status": "WARN",
+      "message": "0/6 trading features detected",
+      "timestamp": "2025-09-24T02:40:09.658Z"
+    },
+    {
+      "test": "Game: Audio System",
+      "status": "WARN",
+      "message": "No audio elements detected",
+      "timestamp": "2025-09-24T02:40:09.658Z"
+    },
+    {
+      "test": "Error: 404 Handling",
+      "status": "WARN",
+      "message": "Generic 404 response",
+      "timestamp": "2025-09-24T02:40:09.683Z"
+    },
+    {
+      "test": "Error: API Errors",
+      "status": "WARN",
+      "message": "API might not handle errors properly",
+      "timestamp": "2025-09-24T02:40:09.695Z"
+    }
+  ],
+  "summary": {
+    "passed": 0,
+    "failed": 0,
+    "warnings": 0,
+    "pass": null,
+    "fail": null,
+    "warn": null
+  }
+}

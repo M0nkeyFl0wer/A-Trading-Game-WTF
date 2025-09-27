@@ -1,0 +1,261 @@
+{
+  "rules": {
+    // Game rooms with secure access control
+    "rooms": {
+      ".read": "auth != null",
+
+      "$roomId": {
+        // Only authenticated users can read room data
+        ".read": "auth != null",
+
+        // Only the host can create a room, players can join
+        ".write": "auth != null && (
+          !data.exists() ||
+          auth.uid == data.child('host').val() ||
+          auth.uid == newData.child('players').child(auth.uid).child('id').val()
+        )",
+
+        // Validate room structure
+        ".validate": "newData.hasChildren(['host', 'createdAt', 'status'])",
+
+        "host": {
+          ".validate": "newData.isString() && newData.val().length > 0"
+        },
+
+        "status": {
+          ".validate": "newData.isString() && newData.val().matches(/^(waiting|playing|finished)$/)"
+        },
+
+        "players": {
+          "$playerId": {
+            // Players can only modify their own data
+            ".write": "$playerId == auth.uid",
+
+            ".validate": "newData.hasChildren(['id', 'name', 'character'])",
+
+            "id": {
+              ".validate": "newData.val() == $playerId"
+            },
+
+            "name": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 30"
+            },
+
+            "character": {
+              ".validate": "newData.isString() && newData.val().matches(/^(DEALER|BULL|BEAR|WHALE|ROOKIE)$/)"
+            },
+
+            "balance": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            },
+
+            "trades": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            }
+          }
+        },
+
+        "gameState": {
+          // Only the host can modify game state
+          ".write": "auth != null && auth.uid == data.parent().child('host').val()",
+
+          "round": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
+          },
+
+          "market": {
+            ".validate": "newData.hasChildren(['price', 'trend', 'volume'])",
+
+            "price": {
+              ".validate": "newData.isNumber() && newData.val() > 0"
+            },
+
+            "trend": {
+              ".validate": "newData.isString() && newData.val().matches(/^(up|down|neutral)$/)"
+            },
+
+            "volume": {
+              ".validate": "newData.isNumber() && newData.val() >= 0"
+            }
+          }
+        },
+
+        "trades": {
+          "$tradeId": {
+            // Only the trader can create their trade
+            ".write": "auth != null && (!data.exists() && newData.child('playerId').val() == auth.uid)",
+
+            ".validate": "newData.hasChildren(['playerId', 'type', 'amount', 'price', 'timestamp'])",
+
+            "playerId": {
+              ".validate": "newData.val() == auth.uid"
+            },
+
+            "type": {
+              ".validate": "newData.val().matches(/^(buy|sell)$/)"
+            },
+
+            "amount": {
+              ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= 1000000"
+            },
+
+            "price": {
+              ".validate": "newData.isNumber() && newData.val() > 0"
+            },
+
+            "timestamp": {
+              ".validate": "newData.isNumber()"
+            }
+          }
+        },
+
+        "messages": {
+          "$messageId": {
+            // Players can only create messages, not edit
+            ".write": "auth != null && !data.exists() && newData.child('senderId').val() == auth.uid",
+
+            ".validate": "newData.hasChildren(['senderId', 'text', 'timestamp'])",
+
+            "senderId": {
+              ".validate": "newData.val() == auth.uid"
+            },
+
+            "text": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 500"
+            },
+
+            "timestamp": {
+              ".validate": "newData.isNumber()"
+            }
+          }
+        },
+
+        "createdAt": {
+          ".validate": "newData.isNumber()"
+        },
+
+        "updatedAt": {
+          ".validate": "newData.isNumber()"
+        }
+      }
+    },
+
+    // User profiles with strict privacy
+    "users": {
+      "$userId": {
+        // Users can only read/write their own profile
+        ".read": "$userId == auth.uid",
+        ".write": "$userId == auth.uid",
+
+        ".validate": "newData.hasChildren(['email', 'username', 'createdAt'])",
+
+        "email": {
+          ".validate": "newData.isString() && newData.val().matches(/^[^@]+@[^@]+$/)"
+        },
+
+        "username": {
+          ".validate": "newData.isString() && newData.val().length >= 3 && newData.val().length <= 30"
+        },
+
+        "stats": {
+          "gamesPlayed": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+
+          "wins": {
+            ".validate": "newData.isNumber() && newData.val() >= 0"
+          },
+
+          "totalProfit": {
+            ".validate": "newData.isNumber()"
+          }
+        },
+
+        "preferences": {
+          "voiceEnabled": {
+            ".validate": "newData.isBoolean()"
+          },
+
+          "defaultCharacter": {
+            ".validate": "newData.isString() && newData.val().matches(/^(DEALER|BULL|BEAR|WHALE|ROOKIE)$/)"
+          },
+
+          "volume": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1"
+          }
+        },
+
+        "createdAt": {
+          ".validate": "newData.isNumber()"
+        },
+
+        "lastActive": {
+          ".validate": "newData.isNumber()"
+        }
+      }
+    },
+
+    // Leaderboard - public read, server-only write
+    "leaderboard": {
+      ".read": true,
+      ".write": false, // Only server functions can write
+
+      "$entry": {
+        ".validate": "newData.hasChildren(['userId', 'username', 'score', 'timestamp'])"
+      }
+    },
+
+    // Bot strategies - authenticated read, user-specific write
+    "botStrategies": {
+      ".read": "auth != null",
+
+      "$strategyId": {
+        // Only the creator can modify their strategy
+        ".write": "auth != null && (
+          !data.exists() && newData.child('creatorId').val() == auth.uid ||
+          data.exists() && data.child('creatorId').val() == auth.uid
+        )",
+
+        ".validate": "newData.hasChildren(['creatorId', 'name', 'code', 'isPublic'])",
+
+        "creatorId": {
+          ".validate": "newData.val() == auth.uid"
+        },
+
+        "name": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100"
+        },
+
+        "code": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 10000"
+        },
+
+        "isPublic": {
+          ".validate": "newData.isBoolean()"
+        },
+
+        "wins": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+
+        "losses": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        }
+      }
+    },
+
+    // System announcements - read-only for users
+    "announcements": {
+      ".read": true,
+      ".write": false // Admin only via server
+    },
+
+    // Rate limiting tracking
+    "rateLimits": {
+      "$userId": {
+        ".read": "$userId == auth.uid",
+        ".write": false // Server-only
+      }
+    }
+  }
+}
