@@ -6,6 +6,7 @@ import { mainnet } from 'wagmi/chains';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import LobbyPage from './pages/LobbyPage';
 import TablePage from './pages/TablePage';
+import PaymentsPage from './pages/PaymentsPage';
 import './index.css';
 
 // Create wagmi config with mainnet for now (no wallet needed for testing)
@@ -27,6 +28,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
           <Routes>
             <Route path="/" element={<LobbyPage />} />
             <Route path="/table/:id" element={<TablePage />} />
+            <Route path="/payments" element={<PaymentsPage />} />
           </Routes>
         </BrowserRouter>
       </QueryClientProvider>

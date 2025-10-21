@@ -106,13 +106,31 @@ export const VOICE_SETTINGS = {
 
 export class ElevenLabsService {
   private audioCache: Map<string, string> = new Map();
-  private audioQueue: AudioBuffer[] = [];
-  private isPlaying: boolean = false;
-  private audioContext: AudioContext;
+  private isPlaying = false;
+  private audioContext: AudioContext | null = null;
   private currentSource: AudioBufferSourceNode | null = null;
+  private readonly isBrowser: boolean;
+  private readonly hasApiKey: boolean;
+  private readonly supportsAudioContext: boolean;
+  private readonly supportsSpeechSynthesis: boolean;
 
   constructor() {
-    this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    this.isBrowser = typeof window !== 'undefined';
+    this.hasApiKey = Boolean(ELEVENLABS_API_KEY);
+    const globalWindow = this.isBrowser ? (window as any) : undefined;
+    this.supportsAudioContext = Boolean(
+      globalWindow?.AudioContext || globalWindow?.webkitAudioContext
+    );
+    this.supportsSpeechSynthesis = Boolean(
+      this.isBrowser &&
+      'speechSynthesis' in window &&
+      typeof (window as any).SpeechSynthesisUtterance !== 'undefined'
+    );
+
+    if (this.supportsAudioContext) {
+      const AudioCtx = globalWindow.AudioContext || globalWindow.webkitAudioContext;
+      this.audioContext = new AudioCtx();
+    }
   }
 
   /**
@@ -123,6 +141,10 @@ export class ElevenLabsService {
     voiceId: string = CHARACTER_VOICES.DEALER,
     settings = VOICE_SETTINGS.default
   ): Promise<ArrayBuffer> {
+    if (!this.hasApiKey) {
+      throw new Error('Missing ElevenLabs API key');
+    }
+
     // Check cache first
     const cacheKey = `${voiceId}-${text}`;
     if (this.audioCache.has(cacheKey)) {
@@ -163,13 +185,32 @@ export class ElevenLabsService {
     voiceId: string = CHARACTER_VOICES.DEALER,
     settings = VOICE_SETTINGS.default
   ): Promise<void> {
+    if (!this.isBrowser) {
+      // In SSR/tests we simply log the dialogue so it can be asserted
+      console.info(`[voice disabled] ${text}`);
+      return;
+    }
+
+    if (!this.supportsAudioContext || !this.hasApiKey) {
+      await this.speakWithFallback(text);
+      return;
+    }
+
     try {
       const audioData = await this.generateSpeech(text, voiceId, settings);
-      const audioBuffer = await this.audioContext.decodeAudioData(audioData.slice(0));
+      const audioContext = this.ensureAudioContext();
 
-      await this.playAudioBuffer(audioBuffer);
+      if (!audioContext) {
+        await this.speakWithFallback(text);
+        return;
+      }
+
+      const audioBuffer = await audioContext.decodeAudioData(audioData.slice(0));
+
+      await this.playAudioBuffer(audioContext, audioBuffer);
     } catch (error) {
       console.error('Error playing speech:', error);
+      await this.speakWithFallback(text);
     }
   }
 
@@ -266,6 +307,10 @@ export class ElevenLabsService {
    * Stop current audio playback
    */
   stopSpeech(): void {
+    if (this.supportsSpeechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+
     if (this.currentSource) {
       this.currentSource.stop();
       this.currentSource = null;
@@ -276,11 +321,11 @@ export class ElevenLabsService {
   /**
    * Helper: Play audio buffer
    */
-  private async playAudioBuffer(audioBuffer: AudioBuffer): Promise<void> {
+  private async playAudioBuffer(audioContext: AudioContext, audioBuffer: AudioBuffer): Promise<void> {
     return new Promise((resolve) => {
-      this.currentSource = this.audioContext.createBufferSource();
+      this.currentSource = audioContext.createBufferSource();
       this.currentSource.buffer = audioBuffer;
-      this.currentSource.connect(this.audioContext.destination);
+      this.currentSource.connect(audioContext.destination);
 
       this.currentSource.onended = () => {
         this.isPlaying = false;
@@ -316,9 +361,51 @@ export class ElevenLabsService {
   }
 
   /**
+   * Helper: lazily initialise audio context
+   */
+  private ensureAudioContext(): AudioContext | null {
+    if (!this.supportsAudioContext) {
+      return null;
+    }
+
+    if (!this.audioContext) {
+      const globalWindow = window as any;
+      const AudioCtx = globalWindow.AudioContext || globalWindow.webkitAudioContext;
+      this.audioContext = new AudioCtx();
+    }
+
+    return this.audioContext;
+  }
+
+  /**
+   * Helper: speech synthesis fallback for when ElevenLabs is unavailable
+   */
+  private async speakWithFallback(text: string): Promise<void> {
+    if (!this.isBrowser) {
+      return;
+    }
+
+    if (this.supportsSpeechSynthesis) {
+      await new Promise<void>((resolve) => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.onend = () => resolve();
+        utterance.onerror = () => resolve();
+        window.speechSynthesis.speak(utterance);
+      });
+      return;
+    }
+
+    console.info(`[voice] ${text}`);
+  }
+
+  /**
    * Preload common phrases for better performance
    */
   async preloadCommonPhrases(): Promise<void> {
+    if (!this.hasApiKey || !this.supportsAudioContext) {
+      return;
+    }
+
     const commonPhrases = [
       { text: "Welcome to the trading floor!", voice: CHARACTER_VOICES.DEALER },
       { text: "Place your bets!", voice: CHARACTER_VOICES.DEALER },

@@ -1,5 +1,10 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { voiceService, CHARACTER_PERSONALITIES } from '../lib/elevenlabs';
+import {
+  voiceService,
+  CHARACTER_PERSONALITIES,
+  CHARACTER_VOICES,
+  VOICE_SETTINGS,
+} from '../lib/elevenlabs';
 import { useStore } from '../store';
 
 interface UseGameVoiceOptions {
@@ -10,13 +15,19 @@ interface UseGameVoiceOptions {
 
 export function useGameVoice(options: UseGameVoiceOptions = {}) {
   const { enabled = true, autoPlay = true, character = 'DEALER' } = options;
-  const previousStateRef = useRef<any>({});
-  const voiceQueueRef = useRef<any[]>([]);
+  const previousStateRef = useRef<{
+    gamePhase?: string;
+    roundNumber?: number;
+    lastAction?: unknown;
+  }>({});
+  const voiceQueueRef = useRef<
+    Array<{ text: string; character?: string; settings?: typeof VOICE_SETTINGS.default }>
+  >([]);
   const isProcessingRef = useRef(false);
 
   // Get game state from store (assuming you have these in your store)
-  const gameState = useStore((state: any) => state.gameState);
-  const currentRound = useStore((state: any) => state.currentRound);
+  const gamePhase = useStore((state: any) => state.gamePhase);
+  const roundNumber = useStore((state: any) => state.roundNumber);
   const players = useStore((state: any) => state.players);
   const lastAction = useStore((state: any) => state.lastAction);
 
@@ -28,6 +39,10 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
 
     isProcessingRef.current = true;
     const nextVoice = voiceQueueRef.current.shift();
+    if (!nextVoice) {
+      isProcessingRef.current = false;
+      return;
+    }
 
     try {
       await voiceService.playSpeech(
@@ -53,6 +68,10 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
 
     const selectedCharacter = characterOverride || character;
     const personality = CHARACTER_PERSONALITIES[selectedCharacter];
+    if (!personality) {
+      console.warn('Unknown character for voice playback', selectedCharacter);
+      return;
+    }
 
     voiceQueueRef.current.push({
       text,
@@ -82,8 +101,8 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
     if (!enabled || !autoPlay) return;
 
     // Check for game state changes
-    if (gameState !== previousStateRef.current.gameState) {
-      switch (gameState) {
+    if (gamePhase !== previousStateRef.current.gamePhase) {
+      switch (gamePhase) {
         case 'waiting':
           queueVoice("Waiting for players to join...");
           break;
@@ -93,7 +112,7 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
         case 'playing':
           queueVoice("The trading floor is now open!");
           break;
-        case 'finished':
+        case 'finished': {
           const winner = players?.find((p: any) => p.isWinner);
           if (winner) {
             queueVoice(`Congratulations ${winner.name}! You've conquered the market!`);
@@ -101,12 +120,16 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
             queueVoice("Game over! Thanks for playing!");
           }
           break;
+        }
+        case 'revealing':
+          queueVoice("Reveal time! Let's see those cards!");
+          break;
       }
     }
 
     // Check for round changes
-    if (currentRound !== previousStateRef.current.currentRound && currentRound) {
-      queueVoice(`Round ${currentRound} begins now! Check your cards!`);
+    if (roundNumber !== previousStateRef.current.roundNumber && roundNumber) {
+      queueVoice(`Round ${roundNumber} begins now! Check your cards!`);
     }
 
     // Check for player actions
@@ -122,18 +145,24 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
           queueVoice("Revealing the market value!");
           break;
         case 'win_round':
-          queueVoice(`${lastAction.player} wins the round with ${lastAction.value} points!`);
+          queueVoice(
+            `${lastAction.player} wins the round${
+              typeof lastAction.value === 'number'
+                ? ` with ${lastAction.value} points!`
+                : '!'
+            }`
+          );
           break;
       }
     }
 
     // Update previous state
     previousStateRef.current = {
-      gameState,
-      currentRound,
+      gamePhase,
+      roundNumber,
       lastAction,
     };
-  }, [gameState, currentRound, lastAction, enabled, autoPlay, queueVoice, players]);
+  }, [gamePhase, roundNumber, lastAction, enabled, autoPlay, queueVoice, players]);
 
   // Character-specific reactions
   const playCharacterReaction = useCallback(async (situation: string) => {
@@ -182,31 +211,3 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
     },
   };
 }
-
-// Voice settings (imported from elevenlabs.ts)
-const VOICE_SETTINGS = {
-  default: {
-    stability: 0.5,
-    similarity_boost: 0.75,
-    style: 0.5,
-    use_speaker_boost: true,
-  },
-  excited: {
-    stability: 0.3,
-    similarity_boost: 0.8,
-    style: 0.7,
-    use_speaker_boost: true,
-  },
-  calm: {
-    stability: 0.7,
-    similarity_boost: 0.7,
-    style: 0.3,
-    use_speaker_boost: true,
-  },
-  dramatic: {
-    stability: 0.4,
-    similarity_boost: 0.85,
-    style: 0.8,
-    use_speaker_boost: true,
-  },
-};
