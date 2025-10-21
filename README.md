@@ -158,6 +158,35 @@ The game features full voice integration with:
 - Manual phrase triggering
 - Queue management for sequential dialogue
 
+## 🔄 Front-End UX Refresh (Beta Prep)
+
+Recent red-team and UX feedback led to a full lobby and table overhaul:
+
+- **Adaptive Layouts** – lobby/table pages now use responsive cards, skeleton loading states, and accessible ARIA labels.
+- **State Management Overhaul** – a normalized zustand store exposes trades, rounds, players, and voice preferences for deterministic renders.
+- **Voice Fallbacks** – ElevenLabs requests gracefully downgrade to the browser SpeechSynthesis API (or console logs in SSR/tests) when API keys are missing.
+- **Accessible Modals & Controls** – table creation, quoting, and voice controls trap focus, surface live regions, and support keyboard flows.
+- **Offline Lobby Cache** – when the realtime backend is offline, the lobby hydrates with sanitized mock table data so QA can rehearse the flow.
+
+## 💳 Payment Portal Scaffold
+
+Navigate to [`/payments`](http://localhost:3000/payments) to review the new payment experience skeleton:
+
+- **Multi-Rail Selector** – wallet deposits, card checkout, and ACH transfers with statuses (`available`, `coming soon`).
+- **Workflow Blueprint** – disabled forms outline required data capture while highlighting integration points (Stripe, Plaid, compliance vendors).
+- **Risk & Compliance Sidebar** – checklists reference Travel Rule, AML screening, PCI, and SOC2 tasks surfaced in the security audit.
+- **Escrow Notes** – copy documents the pull-payment settlement strategy and latency expectations per network.
+
+> ⚙️ Everything renders with sandbox placeholders. Replace the disabled buttons with real provider SDK calls once credentials and compliance gates are cleared.
+
+## ✅ Verification Checklist
+
+1. **Install & run the web app** – `pnpm install && pnpm --filter @trading-game/web dev` then open http://localhost:3000.
+2. **Lobby smoke test** – ensure the lobby shows skeleton cards, then populated mock tables, and voice controls toggle without errors when ElevenLabs keys are absent (you should see SpeechSynthesis or console fallbacks).
+3. **Table experience** – join a table, trigger the quick actions, submit a sample quote, and confirm trades appear in the tape with timestamps.
+4. **Payments scaffold** – navigate to `/payments`, switch between rails, and review compliance notes against the `SECURITY_AUDIT_PREBETA.md` findings.
+5. **Security regression script** – rerun `./tests/red-team-termux.sh` to ensure middleware, rate limiting, and headers still pass after UI updates (backend must be running).
+
 ## 🎮 Gameplay
 
 ### Basic Rules:

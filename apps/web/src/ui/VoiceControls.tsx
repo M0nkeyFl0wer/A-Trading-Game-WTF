@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { voiceService, CHARACTER_PERSONALITIES, CHARACTER_VOICES } from '../lib/elevenlabs';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useGameStore } from '../store';
 
 interface VoiceControlsProps {
   onVoiceToggle?: (enabled: boolean) => void;
@@ -8,10 +9,14 @@ interface VoiceControlsProps {
 }
 
 export default function VoiceControls({ onVoiceToggle, className = '' }: VoiceControlsProps) {
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [currentCharacter, setCurrentCharacter] = useState<keyof typeof CHARACTER_PERSONALITIES>('DEALER');
+  const voiceEnabled = useGameStore(state => state.isVoiceEnabled);
+  const setVoiceEnabledStore = useGameStore(state => state.setVoiceEnabled);
+  const globalCharacter = useGameStore(state => state.character);
+  const setGlobalCharacter = useGameStore(state => state.setCharacter);
+  const volume = useGameStore(state => state.volume);
+  const setVolumeStore = useGameStore(state => state.setVolume);
+  const [currentCharacter, setCurrentCharacter] = useState<keyof typeof CHARACTER_PERSONALITIES>(globalCharacter);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [volume, setVolume] = useState(0.8);
   const [showCharacterMenu, setShowCharacterMenu] = useState(false);
   const [lastPhrase, setLastPhrase] = useState('');
 
@@ -20,9 +25,13 @@ export default function VoiceControls({ onVoiceToggle, className = '' }: VoiceCo
     voiceService.preloadCommonPhrases().catch(console.error);
   }, []);
 
+  useEffect(() => {
+    setCurrentCharacter(globalCharacter);
+  }, [globalCharacter]);
+
   const toggleVoice = () => {
     const newState = !voiceEnabled;
-    setVoiceEnabled(newState);
+    setVoiceEnabledStore(newState);
     onVoiceToggle?.(newState);
 
     if (!newState) {
@@ -36,6 +45,7 @@ export default function VoiceControls({ onVoiceToggle, className = '' }: VoiceCo
     const selectedCharacter = character || currentCharacter;
     setIsPlaying(true);
     setCurrentCharacter(selectedCharacter);
+    setGlobalCharacter(selectedCharacter);
 
     try {
       const personality = CHARACTER_PERSONALITIES[selectedCharacter];
@@ -177,9 +187,11 @@ export default function VoiceControls({ onVoiceToggle, className = '' }: VoiceCo
                   <button
                     key={key}
                     onClick={() => {
-                      setCurrentCharacter(key as keyof typeof CHARACTER_PERSONALITIES);
+                      const nextCharacter = key as keyof typeof CHARACTER_PERSONALITIES;
+                      setCurrentCharacter(nextCharacter);
+                      setGlobalCharacter(nextCharacter);
                       setShowCharacterMenu(false);
-                      playCharacterPhrase(key as keyof typeof CHARACTER_PERSONALITIES);
+                      playCharacterPhrase(nextCharacter);
                     }}
                     disabled={isPlaying}
                     style={{
@@ -293,7 +305,7 @@ export default function VoiceControls({ onVoiceToggle, className = '' }: VoiceCo
               min="0"
               max="100"
               value={volume * 100}
-              onChange={(e) => setVolume(Number(e.target.value) / 100)}
+              onChange={(e) => setVolumeStore(Number(e.target.value) / 100)}
               style={{
                 flex: 1,
                 height: '4px',
