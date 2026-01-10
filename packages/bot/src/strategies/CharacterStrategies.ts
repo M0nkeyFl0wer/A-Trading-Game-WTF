@@ -3,11 +3,11 @@
  * Each character personality translates to a unique trading algorithm
  */
 
-import { Trade, MarketData, Indicator, Position } from '@trading-game/shared';
+import type { Trade, MarketData, Indicator, Position, CharacterType } from '@trading-game/shared';
 
 export interface TradingStrategy {
   name: string;
-  character: string;
+  character: CharacterType;
   riskTolerance: number; // 0-1 scale
   execute(market: MarketData, position: Position): Promise<Trade | null>;
   analyzeMarket(market: MarketData): MarketSentiment;
@@ -27,7 +27,7 @@ export interface MarketSentiment {
  */
 export class DealerStrategy implements TradingStrategy {
   name = 'Market Maker';
-  character = 'DEALER';
+  character: CharacterType = 'DEALER';
   riskTolerance = 0.3;
 
   async execute(market: MarketData, position: Position): Promise<Trade | null> {
@@ -64,7 +64,10 @@ export class DealerStrategy implements TradingStrategy {
   }
 
   analyzeMarket(market: MarketData): MarketSentiment {
-    const volumeRatio = market.buyVolume / (market.buyVolume + market.sellVolume);
+    const buyVol = market.buyVolume ?? 0;
+    const sellVol = market.sellVolume ?? 0;
+    const totalVol = buyVol + sellVol;
+    const volumeRatio = totalVol > 0 ? buyVol / totalVol : 0.5;
     return {
       bullish: volumeRatio * 0.5,
       bearish: (1 - volumeRatio) * 0.5,
@@ -84,12 +87,12 @@ export class DealerStrategy implements TradingStrategy {
  */
 export class BullStrategy implements TradingStrategy {
   name = 'Momentum Long';
-  character = 'BULL';
+  character: CharacterType = 'BULL';
   riskTolerance = 0.8;
 
   async execute(market: MarketData, position: Position): Promise<Trade | null> {
-    const rsi = this.calculateRSI(market.priceHistory);
-    const momentum = this.calculateMomentum(market.priceHistory);
+    const rsi = this.calculateRSI(market.priceHistory ?? []);
+    const momentum = this.calculateMomentum(market.priceHistory ?? []);
 
     // Strong buy signal
     if (rsi > 60 && rsi < 80 && momentum > 0.02) {
@@ -135,8 +138,8 @@ export class BullStrategy implements TradingStrategy {
   }
 
   analyzeMarket(market: MarketData): MarketSentiment {
-    const rsi = this.calculateRSI(market.priceHistory);
-    const momentum = this.calculateMomentum(market.priceHistory);
+    const rsi = this.calculateRSI(market.priceHistory ?? []);
+    const momentum = this.calculateMomentum(market.priceHistory ?? []);
 
     const bullishScore = Math.min(1, (rsi / 100) + (momentum > 0 ? 0.3 : 0));
 
@@ -187,12 +190,12 @@ export class BullStrategy implements TradingStrategy {
  */
 export class BearStrategy implements TradingStrategy {
   name = 'Contrarian Short';
-  character = 'BEAR';
+  character: CharacterType = 'BEAR';
   riskTolerance = 0.6;
 
   async execute(market: MarketData, position: Position): Promise<Trade | null> {
-    const rsi = this.calculateRSI(market.priceHistory);
-    const resistance = this.findResistance(market.priceHistory);
+    const rsi = this.calculateRSI(market.priceHistory ?? []);
+    const resistance = this.findResistance(market.priceHistory ?? []);
 
     // Short signal on overbought
     if (rsi > 70 && market.price > resistance * 0.98) {
@@ -234,8 +237,8 @@ export class BearStrategy implements TradingStrategy {
   }
 
   analyzeMarket(market: MarketData): MarketSentiment {
-    const rsi = this.calculateRSI(market.priceHistory);
-    const trend = this.calculateTrend(market.priceHistory);
+    const rsi = this.calculateRSI(market.priceHistory ?? []);
+    const trend = this.calculateTrend(market.priceHistory ?? []);
 
     const bearishScore = (rsi > 70 ? 0.8 : rsi > 50 ? 0.5 : 0.2) + (trend < 0 ? 0.2 : 0);
 
@@ -294,7 +297,7 @@ export class BearStrategy implements TradingStrategy {
  */
 export class WhaleStrategy implements TradingStrategy {
   name = 'Iceberg Orders';
-  character = 'WHALE';
+  character: CharacterType = 'WHALE';
   riskTolerance = 0.5;
 
   private accumulationTarget = 0;
@@ -302,13 +305,13 @@ export class WhaleStrategy implements TradingStrategy {
 
   async execute(market: MarketData, position: Position): Promise<Trade | null> {
     const vwap = this.calculateVWAP(market);
-    const volume = market.volume24h;
+    const volume = market.volume24h ?? 0;
 
     // Accumulation phase
     if (this.isAccumulationZone(market) && position.size < position.balance * 0.3) {
       // Split large order into chunks
       const chunkSize = Math.min(
-        volume * 0.001, // 0.1% of daily volume
+        (volume * 0.001) || 1, // 0.1% of daily volume, min 1
         this.calculatePositionSize(position.balance, 0.1)
       );
 
@@ -325,7 +328,7 @@ export class WhaleStrategy implements TradingStrategy {
     // Distribution phase
     if (this.isDistributionZone(market) && position.size > 0) {
       const chunkSize = Math.min(
-        volume * 0.001,
+        (volume * 0.001) || 1,
         position.size * 0.1 // Sell 10% at a time
       );
 
@@ -379,29 +382,40 @@ export class WhaleStrategy implements TradingStrategy {
   }
 
   private isAccumulationZone(market: MarketData): boolean {
-    const rsi = this.calculateRSI(market.priceHistory);
-    return rsi < 40 && market.volume24h > market.avgVolume;
+    const rsi = this.calculateRSI(market.priceHistory ?? []);
+    const vol24h = market.volume24h ?? 0;
+    const avgVol = market.avgVolume ?? 1;
+    return rsi < 40 && vol24h > avgVol;
   }
 
   private isDistributionZone(market: MarketData): boolean {
-    const rsi = this.calculateRSI(market.priceHistory);
-    return rsi > 65 && market.volume24h > market.avgVolume;
+    const rsi = this.calculateRSI(market.priceHistory ?? []);
+    const vol24h = market.volume24h ?? 0;
+    const avgVol = market.avgVolume ?? 1;
+    return rsi > 65 && vol24h > avgVol;
   }
 
   private shouldMoveMarket(market: MarketData, position: Position): boolean {
     // Move market when position is small and opportunity is big
+    const vol24h = market.volume24h ?? 0;
+    const avgVol = market.avgVolume ?? 1;
     return position.size < position.balance * 0.1 &&
-           market.volume24h > market.avgVolume * 1.5;
+           vol24h > avgVol * 1.5;
   }
 
   private analyzeVolumeProfile(market: MarketData): number {
-    return market.buyVolume / market.sellVolume;
+    const buyVol = market.buyVolume ?? 0;
+    const sellVol = market.sellVolume ?? 1;
+    return buyVol / sellVol;
   }
 
   private detectAccumulation(market: MarketData): number {
     // Detect if whales are accumulating
-    const priceChange = (market.price - market.open24h) / market.open24h;
-    const volumeIncrease = market.volume24h / market.avgVolume;
+    const open = market.open24h ?? market.price;
+    const priceChange = open > 0 ? (market.price - open) / open : 0;
+    const vol24h = market.volume24h ?? 0;
+    const avgVol = market.avgVolume ?? 1;
+    const volumeIncrease = vol24h / avgVol;
 
     if (priceChange < 0 && volumeIncrease > 1.5) return 0.8; // Accumulation
     if (priceChange > 0 && volumeIncrease > 1.5) return 0.2; // Distribution
@@ -422,7 +436,7 @@ export class WhaleStrategy implements TradingStrategy {
  */
 export class RookieStrategy implements TradingStrategy {
   name = 'Random Walk Learning';
-  character = 'ROOKIE';
+  character: CharacterType = 'ROOKIE';
   riskTolerance = 0.9;
 
   private learningRate = 0.1;
@@ -515,19 +529,19 @@ export class RookieStrategy implements TradingStrategy {
     return null; // Placeholder
   }
 
-  private mimicStrategy(
+  private async mimicStrategy(
     strategy: TradingStrategy,
     market: MarketData,
     position: Position
-  ): Trade | null {
+  ): Promise<Trade | null> {
     // Copy the strategy but with rookie's chaotic twist
-    const originalTrade = strategy.execute(market, position);
+    const originalTrade = await strategy.execute(market, position);
     if (!originalTrade) return null;
 
     // Add random noise to the copied strategy
     return {
       ...originalTrade,
-      size: originalTrade.size * (0.8 + Math.random() * 0.4),
+      size: (originalTrade.size ?? 1) * (0.8 + Math.random() * 0.4),
       character: this.character,
       voiceLine: "I'm doing what they're doing!",
     };
