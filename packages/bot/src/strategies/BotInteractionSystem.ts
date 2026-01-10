@@ -3,9 +3,23 @@
  * Enables real-time bot communication, pattern recognition, and strategy adaptation
  */
 
-import { Trade, MarketData } from '@trading-game/shared';
-import { voiceService, CHARACTER_PERSONALITIES } from '../../../apps/web/src/lib/elevenlabs';
-import { CharacterType, CharacterExpression } from '../../../apps/web/src/lib/characterVisuals';
+import type { Trade, MarketData, CharacterType, CharacterExpression } from '@trading-game/shared';
+
+// Voice service is optional - injected from UI layer if available
+let voiceService: { playSpeech: (text: string, voiceId: string) => Promise<void> } | null = null;
+
+export function setVoiceService(service: typeof voiceService) {
+  voiceService = service;
+}
+
+// Character voice IDs (matching ElevenLabs configuration)
+const CHARACTER_VOICE_IDS: Record<CharacterType, string> = {
+  DEALER: 'EXAVITQu4vr4xnSDxMaL',
+  BULL: '21m00Tcm4TlvDq8ikWAM',
+  BEAR: 'AZnzlk1XvdvUeBnXmlld',
+  WHALE: 'pNInz6obpgDQGcFmaJgB',
+  ROOKIE: 'yoZ06aMxZJJ28mfd3POQ',
+};
 
 export interface BotMessage {
   from: CharacterType;
@@ -135,11 +149,11 @@ export class BotInteractionSystem {
   async sendMessage(message: BotMessage) {
     this.messages.push(message);
 
-    // Voice the message if enabled
-    if (message.type === 'TAUNT' || message.type === 'REACTION') {
+    // Voice the message if voice service is available
+    if (voiceService && (message.type === 'TAUNT' || message.type === 'REACTION')) {
       await voiceService.playSpeech(
         message.content,
-        CHARACTER_PERSONALITIES[message.from].voice
+        CHARACTER_VOICE_IDS[message.from]
       );
     }
 
@@ -212,7 +226,7 @@ export class BotInteractionSystem {
         lastSeen: Date.now(),
         triggerConditions: [
           { indicator: 'RSI', value: 70, comparison: 'GT' },
-          { indicator: 'VOLUME', value: market.avgVolume * 1.5, comparison: 'GT' },
+          { indicator: 'VOLUME', value: (market.avgVolume ?? 0) * 1.5, comparison: 'GT' },
         ],
         associatedBot: trader,
       },
@@ -233,7 +247,7 @@ export class BotInteractionSystem {
         successRate: 0.5,
         lastSeen: Date.now(),
         triggerConditions: [
-          { indicator: 'SIZE', value: market.avgTradeSize * 5, comparison: 'GT' },
+          { indicator: 'SIZE', value: (market.avgTradeSize ?? 0) * 5, comparison: 'GT' },
           { indicator: 'PRICE_IMPACT', value: 0.001, comparison: 'LT' },
         ],
         associatedBot: trader,
@@ -267,7 +281,7 @@ export class BotInteractionSystem {
    */
   private matchesPattern(trade: Trade, market: MarketData, pattern: PatternData): boolean {
     // Simplified pattern matching - would be more complex in production
-    const rsi = this.calculateRSI(market.priceHistory);
+    const rsi = this.calculateRSI(market.priceHistory ?? []);
 
     for (const condition of pattern.triggerConditions) {
       switch (condition.indicator) {
@@ -276,10 +290,10 @@ export class BotInteractionSystem {
           if (condition.comparison === 'LT' && rsi >= condition.value) return false;
           break;
         case 'VOLUME':
-          if (condition.comparison === 'GT' && market.volume24h <= condition.value) return false;
+          if (condition.comparison === 'GT' && (market.volume24h ?? 0) <= condition.value) return false;
           break;
         case 'SIZE':
-          if (condition.comparison === 'GT' && trade.size <= condition.value) return false;
+          if (condition.comparison === 'GT' && (trade.size ?? 0) <= condition.value) return false;
           break;
       }
     }
@@ -332,8 +346,9 @@ export class BotInteractionSystem {
    * Generate personality-based learning dialogue
    */
   private generateLearningDialogue(learner: CharacterType, teacher: CharacterType, pattern: PatternData): string {
-    const dialogues = {
+    const dialogues: Record<CharacterType, Record<CharacterType, string>> = {
       DEALER: {
+        DEALER: "Reflecting on my own strategy...",
         BULL: "Interesting momentum play. I'll adjust my spreads accordingly.",
         BEAR: "Your caution is noted. Market making requires balance.",
         WHALE: "Following the smart money, as always.",
@@ -341,6 +356,7 @@ export class BotInteractionSystem {
       },
       BULL: {
         DEALER: "Your neutral stance won't make you rich!",
+        BULL: "Great minds think alike!",
         BEAR: "I see your short, but I raise you a long!",
         WHALE: "Big money knows the way! To the moon together!",
         ROOKIE: "Kid's got spirit! Diamond hands!",
@@ -348,6 +364,7 @@ export class BotInteractionSystem {
       BEAR: {
         DEALER: "At least someone here has sense.",
         BULL: "Your optimism will be your downfall.",
+        BEAR: "Finally, someone who gets it.",
         WHALE: "The bigger they are, the harder they fall.",
         ROOKIE: "Don't follow them, kid. Markets crash.",
       },
@@ -355,6 +372,7 @@ export class BotInteractionSystem {
         DEALER: "Market makers follow my lead.",
         BULL: "Small fish riding my wave.",
         BEAR: "Your fear creates my opportunities.",
+        WHALE: "Another whale... interesting.",
         ROOKIE: "Watch and learn, minnow.",
       },
       ROOKIE: {
@@ -362,10 +380,11 @@ export class BotInteractionSystem {
         BULL: "YOLO! I'm copying that!",
         BEAR: "Wait, should I be scared now?",
         WHALE: "Wow! Teach me your ways!",
+        ROOKIE: "We're in this together!",
       },
     };
 
-    return dialogues[learner]?.[teacher] || "Interesting strategy...";
+    return dialogues[learner][teacher] ?? "Interesting strategy...";
   }
 
   /**
@@ -405,14 +424,17 @@ export class BotInteractionSystem {
       },
     };
 
-    const sentiment = trade.type.includes('BUY') ? 'positive' : 'negative';
+    const tradeType = trade.type ?? 'buy';
+    const sentiment = tradeType.includes('BUY') || tradeType === 'buy' ? 'positive' : 'negative';
     const reaction = reactions[observer][sentiment];
 
-    // Voice the reaction
-    await voiceService.playSpeech(
-      reaction,
-      CHARACTER_PERSONALITIES[observer].voice
-    );
+    // Voice the reaction if voice service is available
+    if (voiceService) {
+      await voiceService.playSpeech(
+        reaction,
+        CHARACTER_VOICE_IDS[observer]
+      );
+    }
 
     // Update visual expression
     this.updateCharacterExpression(observer, this.getExpressionForReaction(sentiment));
@@ -552,35 +574,46 @@ export class BotInteractionSystem {
    * Generate personality-based response
    */
   private generateResponse(responder: CharacterType, originalMessage: BotMessage): BotMessage | null {
-    const responses = {
+    type MessageType = 'TAUNT' | 'WARNING' | 'ADVICE' | 'REACTION' | 'PATTERN_SPOTTED';
+    const responses: Record<CharacterType, Record<MessageType, string>> = {
       DEALER: {
         TAUNT: "The house always wins in the end.",
         WARNING: "Risk management is key.",
         ADVICE: "Interesting perspective.",
+        REACTION: "Noted.",
+        PATTERN_SPOTTED: "Pattern acknowledged.",
       },
       BULL: {
         TAUNT: "Bears get rekt! Bulls get rich!",
         WARNING: "FUD! Diamond hands only!",
         ADVICE: "To the moon or bust!",
+        REACTION: "Bullish!",
+        PATTERN_SPOTTED: "New opportunity!",
       },
       BEAR: {
         TAUNT: "Your optimism is misplaced.",
         WARNING: "Finally, someone with sense.",
         ADVICE: "The crash is inevitable.",
+        REACTION: "As expected.",
+        PATTERN_SPOTTED: "Confirmation of doom.",
       },
       WHALE: {
         TAUNT: "Small fish make small splashes.",
         WARNING: "Already positioned accordingly.",
         ADVICE: "Follow the smart money.",
+        REACTION: "Interesting.",
+        PATTERN_SPOTTED: "Adding to my analysis.",
       },
       ROOKIE: {
         TAUNT: "Hey! That's not nice!",
         WARNING: "Oh no! What should I do?!",
         ADVICE: "Thanks! I'll try that!",
+        REACTION: "Cool!",
+        PATTERN_SPOTTED: "Ooh, what does that mean?",
       },
     };
 
-    const responseText = responses[responder]?.[originalMessage.type];
+    const responseText = responses[responder][originalMessage.type];
     if (!responseText) return null;
 
     return {
@@ -607,7 +640,8 @@ export class BotInteractionSystem {
 
   private isTradeSuccessful(trade: Trade, market: MarketData): boolean {
     // Check if trade was profitable
-    return trade.type.includes('BUY')
+    const tradeType = trade.type ?? 'buy';
+    return tradeType.includes('BUY') || tradeType === 'buy'
       ? market.price > trade.price
       : market.price < trade.price;
   }
@@ -618,22 +652,27 @@ export class BotInteractionSystem {
   }
 
   private getExpressionForReaction(sentiment: string): CharacterExpression {
-    const expressionMap = {
+    const expressionMap: Record<string, CharacterExpression> = {
       positive: 'happy',
       negative: 'worried',
       neutral: 'thinking',
     };
-    return expressionMap[sentiment] as CharacterExpression || 'neutral';
+    return expressionMap[sentiment] ?? 'neutral';
   }
 
   /**
    * Get interaction statistics for display
    */
   getInteractionStats() {
-    const stats = {
+    const stats: {
+      totalMessages: number;
+      patternsLearned: number;
+      relationships: Record<CharacterType, { strongAllies: CharacterType[]; rivals: CharacterType[] }>;
+      topPatterns: { name: string; frequency: number }[];
+    } = {
       totalMessages: this.messages.length,
       patternsLearned: 0,
-      relationships: {},
+      relationships: {} as Record<CharacterType, { strongAllies: CharacterType[]; rivals: CharacterType[] }>,
       topPatterns: [],
     };
 

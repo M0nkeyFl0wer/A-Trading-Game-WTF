@@ -7,8 +7,7 @@
  * - Reinforcement learning from outcomes
  */
 
-import { Trade, MarketData } from '@trading-game/shared';
-import { CharacterType } from '../../../apps/web/src/lib/characterVisuals';
+import type { Trade, MarketData, CharacterType } from '@trading-game/shared';
 
 export interface NeuralNetwork {
   layers: NeuronLayer[];
@@ -654,9 +653,32 @@ export class AdaptiveLearningEngine {
     // Implementation details omitted for brevity
   }
 
+  /**
+   * Update neural network weights based on experience
+   * TODO: Implement full backpropagation in Feature 3
+   */
+  private async updateNeuralNetwork(profile: LearningProfile, experience: Experience): Promise<void> {
+    const { state, action, reward } = experience;
+
+    // Forward pass to get current predictions
+    const input = this.stateToVector(state);
+    const output = this.forwardPass(profile.neuralNet, input);
+
+    // Calculate error (simplified)
+    const actionIndex = this.actionToIndex(action);
+    const error = reward - (output[actionIndex] || 0);
+
+    // Backpropagate error (stub - will be fully implemented in Feature 3)
+    await this.backpropagate(profile.neuralNet, error, actionIndex);
+
+    // Log for debugging
+    console.log(`[${profile.character}] Neural network updated, error: ${error.toFixed(4)}`);
+  }
+
   private actionToIndex(action: Trade): number {
     const actions = ['BUY', 'SELL', 'HOLD', 'WAIT'];
-    return actions.indexOf(action.type.split('_')[0]);
+    const tradeType = action.type ?? 'buy';
+    return actions.indexOf(tradeType.split('_')[0].toUpperCase());
   }
 
   private actionIndexToTrade(index: number, market: MarketData, profile: LearningProfile): Trade | null {
@@ -684,7 +706,7 @@ export class AdaptiveLearningEngine {
   private marketDataToState(market: MarketData): MarketState {
     return {
       price: market.price,
-      volume: market.volume24h,
+      volume: market.volume24h ?? market.volume,
       rsi: 50, // Would calculate properly
       macd: { signal: 0, histogram: 0 },
       bollinger: { upper: market.high24h, middle: market.price, lower: market.low24h },
@@ -708,7 +730,8 @@ export class AdaptiveLearningEngine {
 
   private evaluateTradeSuccess(trade: Trade, market: MarketData): number {
     // Simple success metric
-    if (trade.type.includes('BUY')) {
+    const tradeType = trade.type ?? 'buy';
+    if (tradeType.includes('BUY') || tradeType === 'buy') {
       return market.price > trade.price ? 0.7 : 0.3;
     } else {
       return market.price < trade.price ? 0.7 : 0.3;
@@ -787,8 +810,11 @@ export class AdaptiveLearningEngine {
  */
 class MarketRegimeDetector {
   detectRegime(market: MarketData): 'BULL' | 'BEAR' | 'SIDEWAYS' {
-    const priceChange = (market.price - market.open24h) / market.open24h;
-    const volumeRatio = market.volume24h / market.avgVolume;
+    const open = market.open24h ?? market.price;
+    const priceChange = open > 0 ? (market.price - open) / open : 0;
+    const vol24h = market.volume24h ?? 0;
+    const avgVol = market.avgVolume ?? 1;
+    const volumeRatio = vol24h / avgVol;
 
     if (priceChange > 0.02 && volumeRatio > 1.2) return 'BULL';
     if (priceChange < -0.02 && volumeRatio > 1.2) return 'BEAR';
