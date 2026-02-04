@@ -29,6 +29,7 @@ interface NormalizedRoom {
   name: string;
   status: string;
   hostName: string;
+  hostId?: string;
   maxPlayers: number;
   players: PlayerState[];
   updatedAt: number;
@@ -101,6 +102,7 @@ const normalizeRoom = (payload: any): NormalizedRoom | null => {
     name: sanitizeInput(String(payload.name ?? 'Trading Table')),
     status: sanitizeInput(String(payload.status ?? 'waiting')),
     hostName,
+    hostId: payload.hostId ? sanitizeInput(String(payload.hostId)) : undefined,
     maxPlayers: Number(payload.maxPlayers ?? 6),
     players: normalizePlayers(payload.players, hostName),
     updatedAt: Number(payload.updatedAt ?? Date.now()),
