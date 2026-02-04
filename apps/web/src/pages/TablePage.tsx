@@ -9,6 +9,7 @@ import VoiceControls from '../ui/VoiceControls';
 import { useGameVoice } from '../hooks/useGameVoice';
 import { useGameStore } from '../store';
 import { useRoomState } from '../hooks/useRoomState';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function TablePage() {
   const { id } = useParams<{ id: string }>();
@@ -19,6 +20,11 @@ export default function TablePage() {
   const gamePhase = useGameStore((state) => state.gamePhase);
   const trades = useGameStore((state) => state.trades);
   const [timeLeft, setTimeLeft] = useState(0);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [startingRound, setStartingRound] = useState(false);
+  const { currentUser } = useAuth();
+  const isHost = Boolean(currentUser && room?.hostId && room.hostId === currentUser.uid);
 
   const { queueVoice, announceEvent, playCharacterReaction } = useGameVoice({
     enabled: voiceEnabled,
@@ -84,6 +90,33 @@ export default function TablePage() {
   const noticeMessage = roomError || (roomStatus === 'loading' && !room ? 'Connecting to table…' : null);
   const isTradingActive = room?.status === 'playing';
 
+  const handleStartRound = async () => {
+    if (!id || !currentUser) return;
+    setStartingRound(true);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const token = await currentUser.getIdToken();
+      const response = await fetch(`${(import.meta.env.VITE_API_URL || '').replace(/\/$/, '')}/api/room/${id}/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error || 'Unable to start round');
+      }
+      setActionMessage('Launching new round…');
+    } catch (err) {
+      console.error('Failed to start round', err);
+      setActionError(err instanceof Error ? err.message : 'Unable to start round');
+    } finally {
+      setStartingRound(false);
+    }
+  };
+
   return (
     <main className="page" aria-labelledby="table-title">
       <header className="page__header">
@@ -96,9 +129,23 @@ export default function TablePage() {
         </div>
       </header>
 
-      {noticeMessage && (
-        <div className={`inline-notice ${roomError ? 'inline-notice--error' : 'inline-notice--info'}`} role="status">
-          {noticeMessage}
+      {(noticeMessage || actionMessage || actionError) && (
+        <div className="stack" style={{ marginBottom: 16 }}>
+          {noticeMessage && (
+            <div className={`inline-notice ${roomError ? 'inline-notice--error' : 'inline-notice--info'}`} role="status">
+              {noticeMessage}
+            </div>
+          )}
+          {actionMessage && (
+            <div className="inline-notice inline-notice--info" role="status">
+              {actionMessage}
+            </div>
+          )}
+          {actionError && (
+            <div className="inline-notice inline-notice--error" role="alert">
+              {actionError}
+            </div>
+          )}
         </div>
       )}
 
@@ -148,6 +195,16 @@ export default function TablePage() {
               >
                 🎴 Reveal cards
               </button>
+              {isHost && !isTradingActive && (
+                <button
+                  type="button"
+                  className="button button--primary"
+                  onClick={handleStartRound}
+                  disabled={startingRound}
+                >
+                  {startingRound ? 'Launching…' : 'Start round'}
+                </button>
+              )}
             </div>
           </section>
 
