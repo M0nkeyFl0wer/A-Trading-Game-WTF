@@ -5,8 +5,10 @@ import { logger } from '../lib/logger';
 
 export interface TradeSummary {
   id: string;
-  player: string;
-  counterparty: string;
+  playerId: string;
+  playerName: string;
+  counterpartyId: string;
+  counterpartyName: string;
   quantity: number;
   price: number;
   value: number;
@@ -31,8 +33,8 @@ interface GameResult {
 }
 
 export class GameEngine {
-  startRound(room: RoomRecord): GameResult {
-    const roundNumber = room.roundNumber + 1;
+  completeRound(room: RoomRecord, pendingTrades: TradeSummary[]): GameResult {
+    const roundNumber = room.roundNumber;
     const tablePlayers: TablePlayer[] = room.players.map((player) => ({
       id: player.id,
       balance: player.balance,
@@ -47,9 +49,9 @@ export class GameEngine {
       throw error;
     }
 
-    const tradeSimulation = this.simulateTrades(tablePlayers);
+    const tradeData = this.prepareTrades(tablePlayers, pendingTrades);
     round.reveal();
-    round.settle(tradeSimulation.trades);
+    round.settle(tradeData.trades);
 
     const winningBalance = Math.max(...tablePlayers.map((p) => p.balance));
     const updatedPlayers: RoomPlayer[] = room.players.map((player) => {
@@ -66,7 +68,7 @@ export class GameEngine {
       roundNumber,
       phase: 'finished',
       communityCards: round.getCommunityCardValues(),
-      trades: tradeSimulation.summaries,
+      trades: tradeData.summaries,
       playerCards: tablePlayers.map((p) => ({ id: p.id, value: p.card?.value ?? 0 })),
       updatedAt: Date.now(),
     };
@@ -79,39 +81,45 @@ export class GameEngine {
     };
   }
 
-  private simulateTrades(players: TablePlayer[]): { trades: Trade[]; summaries: TradeSummary[] } {
-    if (players.length < 2) {
-      return { trades: [], summaries: [] };
-    }
-
+  private prepareTrades(players: TablePlayer[], pending: TradeSummary[]): { trades: Trade[]; summaries: TradeSummary[] } {
     const trades: Trade[] = [];
     const summaries: TradeSummary[] = [];
-    const timestamp = Date.now();
 
-    const sampleCount = Math.min(players.length - 1, 3);
-    for (let i = 0; i < sampleCount; i += 1) {
-      const seller = players[i];
-      const buyer = players[(i + 1) % players.length];
-      const price = 95 + Math.floor(Math.random() * 15);
-      const quantity = 1 + Math.floor(Math.random() * 3);
-
+    const addTrade = (summary: TradeSummary) => {
+      const buyer = summary.type === 'buy' ? summary.playerId : summary.counterpartyId;
+      const seller = summary.type === 'buy' ? summary.counterpartyId : summary.playerId;
       trades.push({
-        from: seller.id,
-        to: buyer.id,
-        price,
-        quantity,
+        from: seller,
+        to: buyer,
+        price: summary.price,
+        quantity: summary.quantity,
       });
+      summaries.push(summary);
+    };
 
-      summaries.push({
-        id: `trade_${timestamp}_${i}`,
-        player: buyer.id,
-        counterparty: seller.id,
-        quantity,
-        price,
-        value: price * quantity,
-        type: 'buy',
-        timestamp: timestamp + i * 1000,
-      });
+    pending.forEach(addTrade);
+
+    if (summaries.length < 3) {
+      const timestamp = Date.now();
+      const sampleCount = Math.min(players.length - 1, 3 - summaries.length);
+      for (let i = 0; i < sampleCount; i += 1) {
+        const seller = players[i];
+        const buyer = players[(i + 1) % players.length];
+        const price = 90 + Math.floor(Math.random() * 20);
+        const quantity = 1 + Math.floor(Math.random() * 2);
+        addTrade({
+          id: `sim-${timestamp}-${i}`,
+          playerId: buyer.id,
+          playerName: buyer.id,
+          counterpartyId: seller.id,
+          counterpartyName: seller.id,
+          quantity,
+          price,
+          value: price * quantity,
+          type: 'buy',
+          timestamp: timestamp + i * 500,
+        });
+      }
     }
 
     return { trades, summaries };

@@ -1,7 +1,9 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
 import { useGameStore } from '../store';
 import { voiceService } from '../lib/elevenlabs';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { useAuth } from '../contexts/AuthContext';
 
 interface QuoteFormState {
   bid: number;
@@ -19,15 +21,22 @@ const initialState: QuoteFormState = {
 
 interface QuoteModalProps {
   className?: string;
+  roomId?: string;
+  disabled?: boolean;
 }
 
-export default function QuoteModal({ className = '' }: QuoteModalProps) {
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+
+export default function QuoteModal({ className = '', roomId, disabled }: QuoteModalProps) {
   const [open, setOpen] = useState(false);
   const [formState, setFormState] = useState(initialState);
   const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const recordTrade = useGameStore(state => state.recordTrade);
   const voiceEnabled = useGameStore(state => state.isVoiceEnabled);
   const character = useGameStore(state => state.character);
+  const { currentUser } = useAuth();
   const firstFieldRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -53,33 +62,71 @@ export default function QuoteModal({ className = '' }: QuoteModalProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [open]);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const price = formState.oneWay ? formState.bid : (formState.bid + formState.ask) / 2;
     const quantity = Math.max(1, formState.size);
 
-    recordTrade({
-      player: 'You',
-      counterparty: formState.oneWay ? 'Market Maker' : 'Crossed',
-      quantity,
-      price,
-      type: formState.oneWay ? 'sell' : 'buy',
-      value: price * quantity,
-      note: formState.oneWay ? 'One-way quote' : 'Two-sided quote',
-    });
+    setSubmitting(true);
+    setError(null);
 
-    if (voiceEnabled) {
-      voiceService
-        .announceGameEvent('trade.placed', `${quantity} @ ${price}`, character)
-        .catch(console.error);
+    const announceSuccess = () => {
+      if (voiceEnabled) {
+        voiceService
+          .announceGameEvent('trade.placed', `${quantity} @ ${price}`, character)
+          .catch(console.error);
+      }
+      setMessage('Quote posted to the pit!');
+      setTimeout(() => {
+        setMessage(null);
+        closeModal();
+      }, 800);
+    };
+
+    const fallback = () => {
+      recordTrade({
+        player: 'You',
+        counterparty: formState.oneWay ? 'Market Maker' : 'Crossed',
+        quantity,
+        price,
+        type: formState.oneWay ? 'sell' : 'buy',
+        value: price * quantity,
+        note: formState.oneWay ? 'One-way quote' : 'Two-sided quote',
+      });
+      announceSuccess();
+    };
+
+    try {
+      if (!roomId || !currentUser) {
+        fallback();
+        return;
+      }
+      const token = await currentUser.getIdToken();
+      const response = await fetch(`${API_BASE}/api/room/${roomId}/trade`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          price,
+          quantity,
+          side: formState.oneWay ? 'sell' : 'buy',
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error || 'Unable to post trade');
+      }
+      announceSuccess();
+    } catch (err) {
+      console.error('Trade submission failed', err);
+      setError(err instanceof Error ? err.message : 'Unable to post trade');
+      fallback();
+    } finally {
+      setSubmitting(false);
     }
-
-    setMessage('Quote posted to the pit!');
-    setTimeout(() => {
-      setMessage(null);
-      closeModal();
-    }, 800);
   };
 
   return (
@@ -91,6 +138,8 @@ export default function QuoteModal({ className = '' }: QuoteModalProps) {
           setOpen(true);
           setTimeout(() => firstFieldRef.current?.focus(), 0);
         }}
+        disabled={disabled}
+        aria-disabled={disabled}
       >
         💬 Post quote
       </button>
@@ -181,13 +230,18 @@ export default function QuoteModal({ className = '' }: QuoteModalProps) {
                   {message}
                 </div>
               )}
+              {error && (
+                <div className="inline-notice inline-notice--error" role="alert">
+                  {error}
+                </div>
+              )}
 
               <div className="page__actions" style={{ justifyContent: 'flex-end' }}>
                 <button type="button" className="button button--ghost" onClick={() => closeModal()}>
                   Cancel
                 </button>
-                <button type="submit" className="button button--primary">
-                  Post quote
+                <button type="submit" className="button button--primary" disabled={submitting}>
+                  {submitting ? 'Posting…' : 'Post quote'}
                 </button>
               </div>
             </form>
