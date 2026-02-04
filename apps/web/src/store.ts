@@ -59,11 +59,13 @@ interface GameState {
   setGamePhase: (phase: GamePhase) => void;
   setPlayers: (players: PlayerState[]) => void;
   recordTrade: (trade: TradePayload) => void;
+  setTrades: (trades: TradeEvent[]) => void;
   setLastAction: (action: LastAction | null) => void;
   // Voice actions
   setCharacter: (character: CharacterType) => void;
   setVoiceEnabled: (enabled: boolean) => void;
   setVolume: (volume: number) => void;
+  setRoundNumber: (round: number) => void;
 }
 
 const defaultPlayers: PlayerState[] = [
@@ -163,6 +165,10 @@ export const useGameStore = create<GameState>((set, get) => {
       }));
     },
 
+    setTrades: (trades) => {
+      set({ trades: trades.slice(-50) });
+    },
+
     setLastAction: (action) => set({ lastAction: action }),
 
     setCharacter: (character) => set({ character }),
@@ -174,6 +180,8 @@ export const useGameStore = create<GameState>((set, get) => {
       voiceService.setVolume(clamped);
       set({ volume: clamped });
     },
+
+    setRoundNumber: (round) => set({ roundNumber: round }),
   };
 });
 
