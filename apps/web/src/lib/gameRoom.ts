@@ -1,7 +1,10 @@
-import { io, Socket } from 'socket.io-client';
+import { io } from 'socket.io-client';
+import { io } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 import { database } from './firebase';
-import { ref, set, onValue, off, push, remove, onDisconnect } from 'firebase/database';
-import { User } from 'firebase/auth';
+import { ref, set, onValue, push, remove, onDisconnect } from 'firebase/database';
+
+type FirebaseUser = import('firebase/auth').User;
 
 export interface GameRoom {
   id: string;
@@ -34,18 +37,41 @@ export interface GameState {
 export class GameRoomManager {
   private socket: Socket | null = null;
   private currentRoom: string | null = null;
-  private listeners: Map<string, any> = new Map();
+  private listeners: Map<string, () => void> = new Map();
+  private authToken: string | null = null;
+  private tokenRefreshTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(private user: User) {
+  constructor(private user: FirebaseUser) {
+    this.bootstrap().catch((error) => {
+      console.error('Failed to initialise game room manager', error);
+    });
+  }
+
+  private async bootstrap() {
+    await this.refreshAuthToken();
     this.initializeSocket();
+    this.scheduleTokenRefresh();
+  }
+
+  private async refreshAuthToken(force = false) {
+    try {
+      this.authToken = await this.user.getIdToken(force);
+    } catch (error) {
+      console.error('Unable to refresh auth token', error);
+      this.authToken = null;
+    }
   }
 
   private initializeSocket() {
+    if (!this.authToken) {
+      console.warn('Cannot initialize socket without auth token');
+      return;
+    }
+
     const socketUrl = import.meta.env.VITE_WEBSOCKET_URL || 'ws://localhost:3001';
     this.socket = io(socketUrl, {
       auth: {
-        uid: this.user.uid,
-        displayName: this.user.displayName,
+        token: this.authToken,
       },
       transports: ['websocket'],
     });
@@ -71,6 +97,23 @@ export class GameRoomManager {
     this.socket.on('playerLeft', (playerId: string) => {
       console.log('Player left:', playerId);
     });
+  }
+
+  private scheduleTokenRefresh() {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    this.tokenRefreshTimer = window.setInterval(async () => {
+      await this.refreshAuthToken(true);
+      if (this.socket && this.authToken) {
+        this.socket.auth = { token: this.authToken };
+        if (this.socket.connected) {
+          this.socket.disconnect();
+        }
+        this.socket.connect();
+      }
+    }, 25 * 60 * 1000);
   }
 
   async createRoom(roomName: string, maxPlayers: number = 5): Promise<string> {
@@ -140,13 +183,13 @@ export class GameRoomManager {
         });
 
         this.currentRoom = roomId;
-        this.socket?.emit('joinRoom', roomId);
+        this.socket?.emit('join-room', roomId);
 
         // Set up disconnect handler
         onDisconnect(playerRef).update({ connected: false });
 
         resolve();
-      }, { onlyOnce: true });
+      }, undefined, { onlyOnce: true });
     });
   }
 
@@ -156,7 +199,7 @@ export class GameRoomManager {
     const playerRef = ref(database, `rooms/${this.currentRoom}/players/${this.user.uid}`);
     await remove(playerRef);
 
-    this.socket?.emit('leaveRoom', this.currentRoom);
+    this.socket?.emit('leave-room', this.currentRoom);
     this.currentRoom = null;
   }
 
@@ -167,7 +210,7 @@ export class GameRoomManager {
     const snapshot = await new Promise<boolean>((resolve) => {
       onValue(playerRef, (snap) => {
         resolve(snap.val() as boolean);
-      }, { onlyOnce: true });
+      }, undefined, { onlyOnce: true });
     });
 
     await set(playerRef, !snapshot);
@@ -184,14 +227,14 @@ export class GameRoomManager {
 
   subscribeToRoom(roomId: string, callback: (room: GameRoom | null) => void): () => void {
     const roomRef = ref(database, `rooms/${roomId}`);
-    const listener = onValue(roomRef, (snapshot) => {
+    const unsubscribe = onValue(roomRef, (snapshot) => {
       callback(snapshot.val() as GameRoom | null);
     });
 
-    this.listeners.set(roomId, listener);
+    this.listeners.set(roomId, unsubscribe);
 
     return () => {
-      off(roomRef, listener);
+      unsubscribe();
       this.listeners.delete(roomId);
     };
   }
@@ -204,7 +247,7 @@ export class GameRoomManager {
         const rooms = snapshot.val() || {};
         const roomList = Object.values(rooms) as GameRoom[];
         resolve(roomList.filter(room => room.status === 'waiting'));
-      }, { onlyOnce: true });
+      }, undefined, { onlyOnce: true });
     });
   }
 
@@ -215,10 +258,13 @@ export class GameRoomManager {
 
   disconnect() {
     this.socket?.disconnect();
-    this.listeners.forEach((listener, roomId) => {
-      const roomRef = ref(database, `rooms/${roomId}`);
-      off(roomRef, listener);
+    this.listeners.forEach((unsubscribe) => {
+      unsubscribe();
     });
     this.listeners.clear();
+    if (this.tokenRefreshTimer) {
+      clearInterval(this.tokenRefreshTimer);
+      this.tokenRefreshTimer = null;
+    }
   }
 }

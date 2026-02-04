@@ -4,7 +4,7 @@
   "installCommand": "pnpm install",
   "outputDirectory": "apps/web/dist",
   "env": {
-    "VITE_ELEVENLABS_API_KEY": "@elevenlabs_api_key",
+    "ELEVENLABS_API_KEY": "@elevenlabs_api_key",
     "VITE_WALLET_CONNECT_PROJECT_ID": "@wallet_connect_project_id",
     "VITE_ALCHEMY_API_KEY": "@alchemy_api_key",
     "VITE_FIREBASE_API_KEY": "@firebase_api_key",

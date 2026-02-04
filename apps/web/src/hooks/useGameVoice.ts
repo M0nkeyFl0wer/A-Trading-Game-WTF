@@ -3,8 +3,8 @@ import {
   voiceService,
   CHARACTER_PERSONALITIES,
   CHARACTER_VOICES,
-  VOICE_SETTINGS,
 } from '../lib/elevenlabs';
+import type { VoiceStyle } from '@trading-game/shared';
 import { useStore } from '../store';
 
 interface UseGameVoiceOptions {
@@ -21,7 +21,7 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
     lastAction?: unknown;
   }>({});
   const voiceQueueRef = useRef<
-    Array<{ text: string; character?: string; settings?: typeof VOICE_SETTINGS.default }>
+    Array<{ text: string; character?: string; style?: VoiceStyle }>
   >([]);
   const isProcessingRef = useRef(false);
 
@@ -48,7 +48,7 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
       await voiceService.playSpeech(
         nextVoice.text,
         nextVoice.character || CHARACTER_VOICES.DEALER,
-        nextVoice.settings
+        nextVoice.style
       );
     } catch (error) {
       console.error('Error playing voice:', error);
@@ -76,10 +76,7 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
     voiceQueueRef.current.push({
       text,
       character: personality.voice,
-      settings: personality.style === 'aggressive' ? VOICE_SETTINGS.excited :
-                personality.style === 'calm' ? VOICE_SETTINGS.calm :
-                personality.style === 'dramatic' ? VOICE_SETTINGS.dramatic :
-                VOICE_SETTINGS.default,
+      style: personality.voiceStyle,
     });
 
     processVoiceQueue();

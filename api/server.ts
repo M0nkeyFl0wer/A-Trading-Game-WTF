@@ -3,12 +3,20 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { applyRateLimiting } from './middleware/rateLimiting';
 import { applySecurityHeaders, handlePreflight } from './middleware/securityHeaders';
+import { authenticateRequest, attachOptionalUser } from './middleware/authenticate';
+import { getAuthInstance } from './lib/firebaseAdmin';
+import { roomEvents } from './lib/roomEvents';
+import { logger } from './lib/logger';
+import { metrics } from './lib/metrics';
 
-/**
- * Secure Express server with all security middleware applied
- */
+import rootRoutes from './routes/index';
+import authRoutes from './routes/auth';
+import tradingRoutes from './routes/trading';
+import botRoutes from './routes/bot';
+import roomRoutes from './routes/room';
+import userRoutes from './routes/user';
+import voiceRoutes from './routes/voice';
 
-// Extend Express Request type to include user
 declare global {
   namespace Express {
     interface Request {
@@ -16,6 +24,7 @@ declare global {
         id: string;
         email: string;
         role: string;
+        name?: string;
       };
       session?: {
         id: string;
@@ -24,11 +33,9 @@ declare global {
   }
 }
 
-// Create Express app
 const app: Express = express();
 const server = createServer(app);
 
-// Create Socket.io server with CORS
 const io = new SocketIOServer(server, {
   cors: {
     origin: process.env.NODE_ENV === 'production'
@@ -39,73 +46,69 @@ const io = new SocketIOServer(server, {
   transports: ['websocket', 'polling']
 });
 
-// Trust proxy (required for proper IP detection behind reverse proxies)
 app.set('trust proxy', 1);
-
-// Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Apply security headers (Helmet, CORS, CSP, etc.)
 applySecurityHeaders(app);
-
-// Handle CORS preflight requests
 app.use(handlePreflight);
-
-// Apply rate limiting
 applyRateLimiting(app);
 
-// Request logging middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
-  const start = Date.now();
-
+  const start = process.hrtime.bigint();
   res.on('finish', () => {
-    const duration = Date.now() - start;
-    console.log(
-      `${new Date().toISOString()} ${req.method} ${req.path} ${res.statusCode} ${duration}ms`
-    );
+    const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+    logger.info({
+      reqId: res.getHeader('X-Request-ID'),
+      method: req.method,
+      path: req.originalUrl,
+      status: res.statusCode,
+      durationMs: Number(durationMs.toFixed(2)),
+    }, 'request completed');
   });
-
   next();
 });
 
-// Health check endpoint (no authentication required)
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     memory: process.memoryUsage(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    metrics: metrics.snapshotMetrics(),
   });
 });
 
-// API Routes
-import authRoutes from './routes/auth';
-import tradingRoutes from './routes/trading';
-import botRoutes from './routes/bot';
-import roomRoutes from './routes/room';
-import userRoutes from './routes/user';
+app.use('/api', rootRoutes);
+app.use('/api/auth', attachOptionalUser, authRoutes);
+app.use('/api/trading', authenticateRequest, tradingRoutes);
+app.use('/api/bot', authenticateRequest, botRoutes);
+app.use('/api/room', authenticateRequest, roomRoutes);
+app.use('/api/user', authenticateRequest, userRoutes);
+app.use('/api/voice', authenticateRequest, voiceRoutes);
 
-// Mount API routes
-app.use('/api/auth', authRoutes);
-app.use('/api/trading', tradingRoutes);
-app.use('/api/bot', botRoutes);
-app.use('/api/room', roomRoutes);
-app.use('/api/user', userRoutes);
-
-// WebSocket authentication
 io.use(async (socket, next) => {
   try {
-    const token = socket.handshake.auth.token;
+    const token = socket.handshake.auth?.token;
+    const auth = getAuthInstance();
 
-    if (!token) {
+    if (!auth) {
+      if (process.env.AUTH_DEV_BYPASS === 'true') {
+        socket.data.user = { id: 'dev-user' };
+        return next();
+      }
+      return next(new Error('Authentication unavailable'));
+    }
+
+    if (!token || typeof token !== 'string') {
       return next(new Error('Authentication error: No token provided'));
     }
 
-    // Verify token (implement your token verification logic)
-    // const user = await verifyToken(token);
-    // socket.data.user = user;
+    const decoded = await auth.verifyIdToken(token);
+    socket.data.user = {
+      id: decoded.uid,
+      email: decoded.email,
+    };
 
     next();
   } catch (err) {
@@ -113,33 +116,26 @@ io.use(async (socket, next) => {
   }
 });
 
-// WebSocket event handlers
 io.on('connection', (socket) => {
-  console.log('New WebSocket connection:', socket.id);
+  logger.info({ socketId: socket.id }, 'socket connected');
 
-  // Join room
   socket.on('join-room', (roomId: string) => {
     socket.join(roomId);
-    console.log(`Socket ${socket.id} joined room ${roomId}`);
+    logger.info({ socketId: socket.id, roomId }, 'socket joined room');
   });
 
-  // Leave room
   socket.on('leave-room', (roomId: string) => {
     socket.leave(roomId);
-    console.log(`Socket ${socket.id} left room ${roomId}`);
+    logger.info({ socketId: socket.id, roomId }, 'socket left room');
   });
 
-  // Handle trading events
   socket.on('trade', (data) => {
-    // Validate and process trade
     const roomId = data.roomId;
     if (roomId) {
-      // Broadcast to room
       io.to(roomId).emit('trade-update', data);
     }
   });
 
-  // Handle chat messages
   socket.on('message', (data) => {
     const roomId = data.roomId;
     if (roomId) {
@@ -150,13 +146,19 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle disconnection
   socket.on('disconnect', () => {
-    console.log('Socket disconnected:', socket.id);
+    logger.info({ socketId: socket.id }, 'socket disconnected');
   });
 });
 
-// 404 handler
+roomEvents.on('room:updated', (room) => {
+  io.emit('rooms:update', room);
+});
+
+roomEvents.on('room:removed', (payload) => {
+  io.emit('rooms:removed', payload);
+});
+
 app.use((req: Request, res: Response) => {
   res.status(404).json({
     error: 'Not Found',
@@ -165,11 +167,8 @@ app.use((req: Request, res: Response) => {
   });
 });
 
-// Global error handler
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('Error:', err);
-
-  // Don't leak error details in production
+  logger.error({ err, path: req.path }, 'Unhandled error');
   const message = process.env.NODE_ENV === 'production'
     ? 'Internal Server Error'
     : err.message;
@@ -182,39 +181,27 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   });
 });
 
-// Graceful shutdown handler
 process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
+  logger.warn('SIGTERM signal received: closing HTTP server');
   server.close(() => {
-    console.log('HTTP server closed');
+    logger.info('HTTP server closed');
     process.exit(0);
   });
 });
 
 process.on('SIGINT', () => {
-  console.log('SIGINT signal received: closing HTTP server');
+  logger.warn('SIGINT signal received: closing HTTP server');
   server.close(() => {
-    console.log('HTTP server closed');
+    logger.info('HTTP server closed');
     process.exit(0);
   });
 });
 
-// Start server
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 
 server.listen(PORT, () => {
-  console.log(`
-    🚀 Server is running!
-    🔒 Security middleware: ✅
-    🚦 Rate limiting: ✅
-    🛡️ CORS protection: ✅
-    🔐 CSP headers: ✅
-
-    Environment: ${process.env.NODE_ENV || 'development'}
-    Server: http://${HOST}:${PORT}
-    Health: http://${HOST}:${PORT}/api/health
-  `);
+  logger.info({ host: HOST, port: PORT, environment: process.env.NODE_ENV || 'development' }, 'Server is running');
 });
 
 export { app, server, io };

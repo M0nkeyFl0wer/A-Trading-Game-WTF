@@ -60,11 +60,17 @@ export class Round {
       position[t.to] = (position[t.to] || 0) + t.quantity;
     });
 
+    const totalCardValue = this.table.players.reduce((acc, player) => acc + (player.card?.value ?? 0), 0);
+    const averageCardValue = this.table.players.length > 0 ? totalCardValue / this.table.players.length : 0;
+
     this.table.players.forEach(p => {
       const cardValue = p.card?.value ?? 0;
-      const finalValue = cardValue + communityTotal + (position[p.id] || 0);
-      const fees = (tradeVolume[p.id] || 0) * feeRate;
-      p.balance += finalValue - fees;
+      const relativeCardPnL = cardValue - averageCardValue;
+      const positionPnL = position[p.id] || 0;
+      const feezableVolume = tradeVolume[p.id] || 0;
+      const fees = feezableVolume * feeRate;
+      const netResult = relativeCardPnL + positionPnL - fees;
+      p.balance += netResult;
     });
 
     this.state = 'settle';

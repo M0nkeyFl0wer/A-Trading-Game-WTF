@@ -102,7 +102,7 @@ export const cspConfig = {
     baseUri: ["'self'"],
     formAction: ["'self'"],
     frameAncestors: ["'none'"],
-    upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : undefined,
+    upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? ([] as string[]) : undefined,
     reportUri: process.env.CSP_REPORT_URI || undefined
   }
 };
@@ -199,10 +199,24 @@ export class CSRFProtection {
         return next();
       }
 
-      const sessionId = req.session?.id || req.ip;
-      const token = req.headers['x-csrf-token'] || req.body?._csrf;
+      const sessionId = (req.session?.id ?? req.ip) as string;
+      const headerToken = req.headers['x-csrf-token'];
+      const normalizedHeader = Array.isArray(headerToken) ? headerToken[0] : headerToken;
+      let normalizedToken: string | undefined;
 
-      if (!token || !this.validateToken(sessionId, token as string)) {
+      if (typeof normalizedHeader === 'string') {
+        normalizedToken = normalizedHeader;
+      } else if (typeof req.body?._csrf === 'string') {
+        normalizedToken = req.body._csrf;
+      }
+
+      if (!normalizedToken) {
+        return res.status(403).json({
+          error: 'Invalid or missing CSRF token'
+        });
+      }
+
+      if (!this.validateToken(sessionId, normalizedToken as string)) {
         return res.status(403).json({
           error: 'Invalid or missing CSRF token'
         });
@@ -284,7 +298,7 @@ export const apiKeyValidation = (req: Request, res: Response, next: NextFunction
 // Apply all security middleware
 export const applySecurityHeaders = (app: any) => {
   // Apply Helmet with comprehensive configuration
-  app.use(helmet(helmetConfig));
+  app.use(helmet(helmetConfig as any));
 
   // Apply CORS
   app.use(cors(corsOptions));
@@ -310,7 +324,10 @@ export const applySecurityHeaders = (app: any) => {
 export const handlePreflight = (req: Request, res: Response, next: NextFunction) => {
   if (req.method === 'OPTIONS') {
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', corsOptions.allowedHeaders?.join(', '));
+    const allowedHeaders = Array.isArray(corsOptions.allowedHeaders)
+      ? corsOptions.allowedHeaders.join(', ')
+      : (corsOptions.allowedHeaders ?? '');
+    res.header('Access-Control-Allow-Headers', allowedHeaders);
     res.header('Access-Control-Max-Age', '86400');
     res.status(204).end();
   } else {

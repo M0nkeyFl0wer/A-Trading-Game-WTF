@@ -1,16 +1,16 @@
-// ElevenLabs Voice Integration Service
-const ELEVENLABS_API_KEY = import.meta.env.VITE_ELEVENLABS_API_KEY;
-const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1';
+import {
+  CHARACTER_VOICES,
+  VOICE_SETTINGS,
+  type VoiceStyle,
+  DEFAULT_VOICE_STYLE,
+} from '@trading-game/shared';
 
-// Character voice IDs from ElevenLabs
-export const CHARACTER_VOICES = {
-  DEALER: 'EXAVITQu4vr4xnSDxMaL', // Sarah - Professional dealer voice
-  BULL: '21m00Tcm4TlvDq8ikWAM', // Rachel - Confident trader
-  BEAR: 'AZnzlk1XvdvUeBnXmlld', // Domi - Cautious analyst
-  WHALE: 'pNInz6obpgDQGcFmaJgB', // Adam - Deep voiced big player
-  ROOKIE: 'yoZ06aMxZJJ28mfd3POQ', // Sam - Young enthusiastic trader
-  ANNOUNCER: 'ThT5KcBeYPX3keUQqHPh', // Dorothy - Game announcer
-} as const;
+export { CHARACTER_VOICES, VOICE_SETTINGS } from '@trading-game/shared';
+export type { VoiceStyle } from '@trading-game/shared';
+
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+const VOICE_PROXY_ENDPOINT = '/api/voice/speak';
+const VOICE_PROXY_URL = API_BASE_URL ? `${API_BASE_URL}${VOICE_PROXY_ENDPOINT}` : VOICE_PROXY_ENDPOINT;
 
 // Character personalities and dialogue styles
 export const CHARACTER_PERSONALITIES = {
@@ -18,6 +18,7 @@ export const CHARACTER_PERSONALITIES = {
     name: 'The Dealer',
     voice: CHARACTER_VOICES.DEALER,
     style: 'professional',
+    voiceStyle: 'default' as VoiceStyle,
     traits: ['calm', 'authoritative', 'neutral'],
     catchphrases: [
       "Place your bets, traders",
@@ -30,6 +31,7 @@ export const CHARACTER_PERSONALITIES = {
     name: 'Bull Runner',
     voice: CHARACTER_VOICES.BULL,
     style: 'aggressive',
+    voiceStyle: 'excited' as VoiceStyle,
     traits: ['optimistic', 'confident', 'risk-taker'],
     catchphrases: [
       "To the moon!",
@@ -42,6 +44,7 @@ export const CHARACTER_PERSONALITIES = {
     name: 'Bear Necessities',
     voice: CHARACTER_VOICES.BEAR,
     style: 'cautious',
+    voiceStyle: 'calm' as VoiceStyle,
     traits: ['pessimistic', 'analytical', 'conservative'],
     catchphrases: [
       "The crash is coming",
@@ -54,6 +57,7 @@ export const CHARACTER_PERSONALITIES = {
     name: 'The Whale',
     voice: CHARACTER_VOICES.WHALE,
     style: 'mysterious',
+    voiceStyle: 'dramatic' as VoiceStyle,
     traits: ['wealthy', 'strategic', 'influential'],
     catchphrases: [
       "Small fish swim in my wake",
@@ -66,6 +70,7 @@ export const CHARACTER_PERSONALITIES = {
     name: 'Fresh Trader',
     voice: CHARACTER_VOICES.ROOKIE,
     style: 'excited',
+    voiceStyle: 'excited' as VoiceStyle,
     traits: ['naive', 'enthusiastic', 'learning'],
     catchphrases: [
       "Is this good? Is this bad?",
@@ -76,47 +81,20 @@ export const CHARACTER_PERSONALITIES = {
   },
 };
 
-// Voice settings for different situations
-export const VOICE_SETTINGS = {
-  default: {
-    stability: 0.5,
-    similarity_boost: 0.75,
-    style: 0.5,
-    use_speaker_boost: true,
-  },
-  excited: {
-    stability: 0.3,
-    similarity_boost: 0.8,
-    style: 0.7,
-    use_speaker_boost: true,
-  },
-  calm: {
-    stability: 0.7,
-    similarity_boost: 0.7,
-    style: 0.3,
-    use_speaker_boost: true,
-  },
-  dramatic: {
-    stability: 0.4,
-    similarity_boost: 0.85,
-    style: 0.8,
-    use_speaker_boost: true,
-  },
-};
-
 export class ElevenLabsService {
   private audioCache: Map<string, string> = new Map();
   private isPlaying = false;
   private audioContext: AudioContext | null = null;
   private currentSource: AudioBufferSourceNode | null = null;
+  private gainNode: GainNode | null = null;
   private readonly isBrowser: boolean;
-  private readonly hasApiKey: boolean;
   private readonly supportsAudioContext: boolean;
   private readonly supportsSpeechSynthesis: boolean;
+  private voiceProxyEnabled: boolean;
+  private masterVolume = 0.7;
 
   constructor() {
     this.isBrowser = typeof window !== 'undefined';
-    this.hasApiKey = Boolean(ELEVENLABS_API_KEY);
     const globalWindow = this.isBrowser ? (window as any) : undefined;
     this.supportsAudioContext = Boolean(
       globalWindow?.AudioContext || globalWindow?.webkitAudioContext
@@ -126,10 +104,30 @@ export class ElevenLabsService {
       'speechSynthesis' in window &&
       typeof (window as any).SpeechSynthesisUtterance !== 'undefined'
     );
+    this.voiceProxyEnabled = true;
 
     if (this.supportsAudioContext) {
       const AudioCtx = globalWindow.AudioContext || globalWindow.webkitAudioContext;
       this.audioContext = new AudioCtx();
+      this.initializeGainNode();
+    }
+  }
+
+  setVolume(volume: number) {
+    const clamped = Math.min(1, Math.max(0, volume));
+    this.masterVolume = clamped;
+
+    if (!this.gainNode) {
+      this.initializeGainNode();
+    }
+
+    if (this.gainNode) {
+      const ctx = this.gainNode.context;
+      if (typeof this.gainNode.gain.setTargetAtTime === 'function') {
+        this.gainNode.gain.setTargetAtTime(clamped, ctx.currentTime, 0.01);
+      } else {
+        this.gainNode.gain.value = clamped;
+      }
     }
   }
 
@@ -139,39 +137,48 @@ export class ElevenLabsService {
   async generateSpeech(
     text: string,
     voiceId: string = CHARACTER_VOICES.DEALER,
-    settings = VOICE_SETTINGS.default
+    style: VoiceStyle = DEFAULT_VOICE_STYLE
   ): Promise<ArrayBuffer> {
-    if (!this.hasApiKey) {
-      throw new Error('Missing ElevenLabs API key');
+    if (!this.voiceProxyEnabled) {
+      throw new Error('Voice proxy unavailable');
     }
 
-    // Check cache first
-    const cacheKey = `${voiceId}-${text}`;
+    if (typeof fetch !== 'function') {
+      throw new Error('Fetch API unavailable in this environment');
+    }
+
+    const normalizedText = text?.trim();
+    if (!normalizedText) {
+      throw new Error('Text is required for speech synthesis');
+    }
+
+    const cacheKey = `${voiceId}-${style}-${normalizedText}`;
     if (this.audioCache.has(cacheKey)) {
       const cached = this.audioCache.get(cacheKey)!;
       return this.base64ToArrayBuffer(cached);
     }
 
-    const response = await fetch(`${ELEVENLABS_API_URL}/text-to-speech/${voiceId}`, {
+    const response = await fetch(VOICE_PROXY_URL, {
       method: 'POST',
       headers: {
-        'xi-api-key': ELEVENLABS_API_KEY,
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify({
-        text,
-        model_id: 'eleven_turbo_v2',
-        voice_settings: settings,
+        text: normalizedText,
+        voiceId,
+        style,
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`ElevenLabs API error: ${response.statusText}`);
+      if (response.status === 503) {
+        this.voiceProxyEnabled = false;
+      }
+      throw new Error(`Voice proxy error: ${response.statusText}`);
     }
 
     const audioData = await response.arrayBuffer();
-
-    // Cache the audio data
     this.audioCache.set(cacheKey, this.arrayBufferToBase64(audioData));
 
     return audioData;
@@ -183,7 +190,7 @@ export class ElevenLabsService {
   async playSpeech(
     text: string,
     voiceId: string = CHARACTER_VOICES.DEALER,
-    settings = VOICE_SETTINGS.default
+    style: VoiceStyle = DEFAULT_VOICE_STYLE
   ): Promise<void> {
     if (!this.isBrowser) {
       // In SSR/tests we simply log the dialogue so it can be asserted
@@ -191,13 +198,13 @@ export class ElevenLabsService {
       return;
     }
 
-    if (!this.supportsAudioContext || !this.hasApiKey) {
+    if (!this.supportsAudioContext) {
       await this.speakWithFallback(text);
       return;
     }
 
     try {
-      const audioData = await this.generateSpeech(text, voiceId, settings);
+      const audioData = await this.generateSpeech(text, voiceId, style);
       const audioContext = this.ensureAudioContext();
 
       if (!audioContext) {
@@ -221,12 +228,7 @@ export class ElevenLabsService {
     const character = CHARACTER_PERSONALITIES[characterType];
     const phrase = character.catchphrases[Math.floor(Math.random() * character.catchphrases.length)];
 
-    const settings = character.style === 'aggressive' ? VOICE_SETTINGS.excited :
-                      character.style === 'cautious' ? VOICE_SETTINGS.calm :
-                      character.style === 'mysterious' ? VOICE_SETTINGS.dramatic :
-                      VOICE_SETTINGS.default;
-
-    await this.playSpeech(phrase, character.voice, settings);
+    await this.playSpeech(phrase, character.voice, character.voiceStyle);
   }
 
   /**
@@ -286,7 +288,7 @@ export class ElevenLabsService {
     const dialogue = this.getContextualDialogue(event, value);
     const character = CHARACTER_PERSONALITIES[characterType];
 
-    await this.playSpeech(dialogue, character.voice, VOICE_SETTINGS.default);
+    await this.playSpeech(dialogue, character.voice, DEFAULT_VOICE_STYLE);
   }
 
   /**
@@ -295,7 +297,7 @@ export class ElevenLabsService {
   async queueDialogue(dialogues: Array<{text: string, character: keyof typeof CHARACTER_PERSONALITIES, delay?: number}>): Promise<void> {
     for (const dialogue of dialogues) {
       const character = CHARACTER_PERSONALITIES[dialogue.character];
-      await this.playSpeech(dialogue.text, character.voice, VOICE_SETTINGS.default);
+      await this.playSpeech(dialogue.text, character.voice, DEFAULT_VOICE_STYLE);
 
       if (dialogue.delay) {
         await new Promise(resolve => setTimeout(resolve, dialogue.delay));
@@ -325,7 +327,8 @@ export class ElevenLabsService {
     return new Promise((resolve) => {
       this.currentSource = audioContext.createBufferSource();
       this.currentSource.buffer = audioBuffer;
-      this.currentSource.connect(audioContext.destination);
+      const destination = this.ensureGainNode(audioContext);
+      this.currentSource.connect(destination ?? audioContext.destination);
 
       this.currentSource.onended = () => {
         this.isPlaying = false;
@@ -372,9 +375,26 @@ export class ElevenLabsService {
       const globalWindow = window as any;
       const AudioCtx = globalWindow.AudioContext || globalWindow.webkitAudioContext;
       this.audioContext = new AudioCtx();
+      this.initializeGainNode();
     }
 
     return this.audioContext;
+  }
+
+  private ensureGainNode(audioContext: AudioContext): GainNode | null {
+    if (!this.gainNode) {
+      this.gainNode = audioContext.createGain();
+      this.gainNode.gain.value = this.masterVolume;
+      this.gainNode.connect(audioContext.destination);
+    }
+    return this.gainNode;
+  }
+
+  private initializeGainNode() {
+    if (!this.audioContext || !this.supportsAudioContext) {
+      return;
+    }
+    this.ensureGainNode(this.audioContext);
   }
 
   /**
@@ -402,7 +422,7 @@ export class ElevenLabsService {
    * Preload common phrases for better performance
    */
   async preloadCommonPhrases(): Promise<void> {
-    if (!this.hasApiKey || !this.supportsAudioContext) {
+    if (!this.voiceProxyEnabled || !this.supportsAudioContext) {
       return;
     }
 
@@ -415,7 +435,7 @@ export class ElevenLabsService {
 
     await Promise.all(
       commonPhrases.map(phrase =>
-        this.generateSpeech(phrase.text, phrase.voice).catch(console.error)
+        this.generateSpeech(phrase.text, phrase.voice, DEFAULT_VOICE_STYLE).catch(console.error)
       )
     );
   }
