@@ -1,13 +1,18 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { getFirestoreInstance } from '../lib/firebaseAdmin';
 import { emitRoomUpdated, emitRoomRemoved } from '../lib/roomEvents';
+import { gameEngine, type RoomGameState } from './gameEngine';
 
-export type RoomStatus = 'waiting' | 'playing' | 'starting';
+export type RoomStatus = 'waiting' | 'playing' | 'starting' | 'finished';
 
 export interface RoomPlayer {
   id: string;
   name: string;
   joinedAt: number;
+  balance: number;
+  character: string;
+  isBot?: boolean;
+  isWinner?: boolean;
 }
 
 export interface RoomRecord {
@@ -20,6 +25,8 @@ export interface RoomRecord {
   players: RoomPlayer[];
   createdAt: number;
   updatedAt: number;
+  roundNumber: number;
+  gameState?: RoomGameState;
 }
 
 export class RoomServiceError extends Error {
@@ -30,6 +37,17 @@ export class RoomServiceError extends Error {
 }
 
 const createRoomId = () => `room_${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+
+const DEFAULT_BALANCE = 1_000;
+const CHARACTER_SEQUENCE = ['DEALER', 'BULL', 'BEAR', 'WHALE', 'ROOKIE'];
+
+const createPlayer = (id: string, name: string, index: number): RoomPlayer => ({
+  id,
+  name,
+  joinedAt: Date.now(),
+  balance: DEFAULT_BALANCE,
+  character: CHARACTER_SEQUENCE[index % CHARACTER_SEQUENCE.length],
+});
 
 export class RoomService {
   private memoryRooms = new Map<string, RoomRecord>();
@@ -64,6 +82,8 @@ export class RoomService {
   }
 
   async createRoom(name: string, maxPlayers: number, hostId: string, hostName: string): Promise<RoomRecord> {
+    const hostPlayer = { ...createPlayer(hostId, hostName, 0), character: 'DEALER' };
+    const now = Date.now();
     const room: RoomRecord = {
       id: createRoomId(),
       name,
@@ -71,15 +91,10 @@ export class RoomService {
       hostId,
       hostName,
       status: 'waiting',
-      players: [
-        {
-          id: hostId,
-          name: hostName,
-          joinedAt: Date.now(),
-        },
-      ],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      players: [hostPlayer],
+      createdAt: now,
+      updatedAt: now,
+      roundNumber: 0,
     };
 
     if (!this.db) {
@@ -93,7 +108,7 @@ export class RoomService {
     return room;
   }
 
-  async joinRoom(roomId: string, player: RoomPlayer): Promise<RoomRecord> {
+  async joinRoom(roomId: string, player: { id: string; name: string }): Promise<RoomRecord> {
     if (!this.db) {
       const updated = this.joinMemoryRoom(roomId, player);
       emitRoomUpdated(updated);
@@ -163,9 +178,10 @@ export class RoomService {
         throw new RoomServiceError(404, 'Room not found');
       }
       const updated = updateState({ ...room, players: [...room.players] });
-      this.memoryRooms.set(roomId, updated);
-      emitRoomUpdated(updated);
-      return updated;
+      const finalRoom = this.finalizeRound(updated);
+      this.memoryRooms.set(roomId, finalRoom);
+      emitRoomUpdated(finalRoom);
+      return finalRoom;
     }
 
     return this.db.runTransaction(async (tx) => {
@@ -176,13 +192,14 @@ export class RoomService {
       }
       const room = snapshot.data() as RoomRecord;
       const updated = updateState(room);
-      tx.set(ref, updated);
-      emitRoomUpdated(updated);
-      return updated;
+      const finalRoom = this.finalizeRound(updated);
+      tx.set(ref, finalRoom);
+      emitRoomUpdated(finalRoom);
+      return finalRoom;
     });
   }
 
-  private joinRoomState(room: RoomRecord, player: RoomPlayer): RoomRecord {
+  private joinRoomState(room: RoomRecord, player: { id: string; name: string }): RoomRecord {
     if (room.players.find((p) => p.id === player.id)) {
       return room;
     }
@@ -191,9 +208,11 @@ export class RoomService {
       throw new RoomServiceError(400, 'Room is full');
     }
 
+    const newPlayer = createPlayer(player.id, player.name, room.players.length);
+
     const updated: RoomRecord = {
       ...room,
-      players: [...room.players, player],
+      players: [...room.players, newPlayer],
       status: room.players.length + 1 === room.maxPlayers ? 'playing' : room.status,
       updatedAt: Date.now(),
     };
@@ -222,12 +241,25 @@ export class RoomService {
       players: remainingPlayers,
       status: remainingPlayers.length === 0 ? 'waiting' : room.status,
       updatedAt: Date.now(),
+      gameState: remainingPlayers.length === 0 ? undefined : room.gameState,
     };
 
     return updated;
   }
 
-  private joinMemoryRoom(roomId: string, player: RoomPlayer): RoomRecord {
+  private finalizeRound(room: RoomRecord): RoomRecord {
+    const result = gameEngine.startRound(room);
+    return {
+      ...room,
+      status: result.status,
+      players: result.players,
+      roundNumber: result.roundNumber,
+      gameState: result.gameState,
+      updatedAt: Date.now(),
+    };
+  }
+
+  private joinMemoryRoom(roomId: string, player: { id: string; name: string }): RoomRecord {
     const room = this.memoryRooms.get(roomId);
     if (!room) {
       throw new RoomServiceError(404, 'Room not found');

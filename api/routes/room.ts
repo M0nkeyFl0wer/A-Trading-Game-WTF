@@ -81,12 +81,10 @@ router.post('/join/:roomId', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Room ID is required' });
   }
   try {
-    const player = {
+    const room = await roomService.joinRoom(roomId, {
       id: req.user.id,
       name: getDisplayName(req),
-      joinedAt: Date.now(),
-    };
-    const room = await roomService.joinRoom(roomId, player);
+    });
     return res.status(200).json({ success: true, room });
   } catch (error) {
     return handleRoomError(error, res);

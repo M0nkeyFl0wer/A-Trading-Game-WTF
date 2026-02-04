@@ -75,4 +75,8 @@ export class Round {
 
     this.state = 'settle';
   }
+
+  getCommunityCardValues(): number[] {
+    return this.community.map(card => card.value);
+  }
 }
