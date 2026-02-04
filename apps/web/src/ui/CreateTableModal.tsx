@@ -1,4 +1,6 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { sanitizeInput } from '../lib/security';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
@@ -13,6 +15,8 @@ export interface CreateTableConfig {
 interface CreateTableModalProps {
   onCreate: (config: CreateTableConfig) => Promise<void> | void;
   defaultVoiceEnabled?: boolean;
+  disabled?: boolean;
+  disabledMessage?: string;
 }
 
 const initialFormState = (defaultVoiceEnabled: boolean) => ({
@@ -26,6 +30,8 @@ const initialFormState = (defaultVoiceEnabled: boolean) => ({
 export default function CreateTableModal({
   onCreate,
   defaultVoiceEnabled = true,
+  disabled = false,
+  disabledMessage,
 }: CreateTableModalProps) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -116,15 +122,32 @@ export default function CreateTableModal({
     }));
   };
 
+  const handleOpen = () => {
+    if (disabled) {
+      setFormMessage(disabledMessage ?? 'Sign in to launch a table.');
+      return;
+    }
+    setOpen(true);
+  };
+
   return (
     <div className="create-table">
       <button
         type="button"
         className="button button--primary"
-        onClick={() => setOpen(true)}
+        onClick={handleOpen}
+        disabled={disabled}
+        aria-disabled={disabled}
+        title={disabled ? disabledMessage : undefined}
       >
         ➕ Create Table
       </button>
+
+      {disabled && (
+        <p className="inline-notice inline-notice--info" role="note" style={{ marginTop: 8 }}>
+          {disabledMessage ?? 'Sign in to launch a table.'}
+        </p>
+      )}
 
       {open && (
         <div

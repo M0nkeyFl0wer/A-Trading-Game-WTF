@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { validateInput, validationSchemas } from '../../apps/web/src/lib/security';
+import { validateInput, validationSchemas } from '@trading-game/shared';
 
 const router = Router();
 

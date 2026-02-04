@@ -11,6 +11,8 @@ coverage/
 dist/
 dist-ssr/
 build/
+packages/contract/artifacts/
+packages/contract/cache/
 
 # Environment variables
 .env

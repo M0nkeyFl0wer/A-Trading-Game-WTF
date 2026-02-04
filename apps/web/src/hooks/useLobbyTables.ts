@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onIdTokenChanged } from 'firebase/auth';
 import { sanitizeInput } from '../lib/security';
 import { auth } from '../lib/firebase';
+import { io, Socket } from 'socket.io-client';
 
 export type LobbyTablePhase = 'waiting' | 'playing' | 'finished';
 
@@ -68,35 +69,69 @@ const OFFLINE_TABLES: LobbyTableSummary[] = [
   },
 ];
 
-const normaliseFromApi = (payload: any): LobbyTableSummary[] => {
-  if (!Array.isArray(payload)) return OFFLINE_TABLES;
-
-  return payload
-    .map((table) => ({
-      id: sanitizeInput(String(table?.id ?? generateId())),
-      name: sanitizeInput(String(table?.name ?? 'Untitled table')),
-      host: sanitizeInput(String(table?.host ?? 'Dealer')),
-      players: Math.max(0, Math.min(8, Number(table?.players ?? 0))),
-      capacity: Math.max(1, Math.min(8, Number(table?.capacity ?? 6))),
-      stakes: sanitizeInput(String(table?.stakes ?? 'Tick 1')),
-      phase: (['waiting', 'playing', 'finished'] as LobbyTablePhase[]).includes(table?.phase)
-        ? (table.phase as LobbyTablePhase)
-        : 'waiting',
-      avgTurnSeconds: Math.max(10, Math.min(240, Number(table?.avgTurnSeconds ?? 45))),
-      voiceEnabled: Boolean(table?.voiceEnabled ?? true),
-      tags: Array.isArray(table?.tags)
-        ? table.tags.map((tag: string) => sanitizeInput(String(tag))).slice(0, 4)
-        : [],
-      createdAt: new Date(table?.createdAt ?? Date.now()).toISOString(),
-    }))
-    .slice(0, 6);
+const stakesFromRoom = (room: any): string => {
+  const capacity = Number(room?.maxPlayers ?? 6);
+  if (capacity >= 7) return 'High stakes · Tick 10';
+  if (capacity >= 5) return 'Mid stakes · Tick 5';
+  return 'Low stakes · Tick 1';
 };
+
+const normalizeRoom = (table: any): LobbyTableSummary | null => {
+  if (!table) return null;
+
+  const playerCount = (() => {
+    if (Array.isArray(table?.players)) {
+      return table.players.length;
+    }
+    if (table?.players && typeof table.players === 'object') {
+      return Object.keys(table.players).length;
+    }
+    return Number(table?.players ?? 0);
+  })();
+
+  return {
+    id: sanitizeInput(String(table?.id ?? generateId())),
+    name: sanitizeInput(String(table?.name ?? 'Untitled table')),
+    host: sanitizeInput(String(table?.hostName ?? table?.host ?? 'Dealer')),
+    players: Math.max(0, Math.min(8, Number(playerCount))),
+    capacity: Math.max(1, Math.min(8, Number(table?.maxPlayers ?? table?.capacity ?? 6))),
+    stakes: sanitizeInput(String(table?.stakes ?? stakesFromRoom(table))),
+    phase: (['waiting', 'playing', 'finished'] as LobbyTablePhase[]).includes(table?.status)
+      ? (table.status as LobbyTablePhase)
+      : 'waiting',
+    avgTurnSeconds: Math.max(10, Math.min(240, Number(table?.avgTurnSeconds ?? 45))),
+    voiceEnabled: Boolean(table?.voiceEnabled ?? true),
+    tags: Array.isArray(table?.tags)
+      ? table.tags.map((tag: string) => sanitizeInput(String(tag))).slice(0, 4)
+      : [],
+    createdAt: new Date(table?.createdAt ?? Date.now()).toISOString(),
+  };
+};
+
+const normaliseFromApi = (payload: any): LobbyTableSummary[] => {
+  const rooms = Array.isArray(payload?.rooms)
+    ? payload.rooms
+    : Array.isArray(payload)
+      ? payload
+      : [];
+
+  const normalised = rooms
+    .map(normalizeRoom)
+    .filter(Boolean) as LobbyTableSummary[];
+
+  return normalised.length ? normalised.slice(0, 12) : OFFLINE_TABLES;
+};
+
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+const ROOMS_ENDPOINT = API_BASE ? `${API_BASE}/api/rooms` : '/api/rooms';
+const WS_BASE = (import.meta.env.VITE_WEBSOCKET_URL || '').replace(/\/$/, '');
 
 export const useLobbyTables = () => {
   const [tables, setTables] = useState<LobbyTableSummary[]>([]);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
+  const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -116,6 +151,24 @@ export const useLobbyTables = () => {
     });
 
     return () => unsubscribe();
+  }, []);
+
+  const updateFromRoom = useCallback((room: any) => {
+    const normalized = normalizeRoom(room);
+    if (!normalized) {
+      return;
+    }
+
+    setTables((prev) => {
+      const existingIdx = prev.findIndex((table) => table.id === normalized.id);
+      const next = existingIdx >= 0 ? [...prev] : [...prev, normalized];
+      next[existingIdx >= 0 ? existingIdx : next.length - 1] = normalized;
+      return next.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    });
+  }, []);
+
+  const removeRoomById = useCallback((roomId: string) => {
+    setTables((prev) => prev.filter((table) => table.id !== roomId));
   }, []);
 
   const loadTables = useCallback(async (signal?: AbortSignal) => {
@@ -142,7 +195,7 @@ export const useLobbyTables = () => {
         headers['Authorization'] = `Bearer ${authToken}`;
       }
 
-      const response = await fetch('/api/room/list', {
+      const response = await fetch(ROOMS_ENDPOINT, {
         signal,
         headers,
         credentials: 'include',
@@ -185,6 +238,39 @@ export const useLobbyTables = () => {
     };
   }, [loadTables]);
 
+  useEffect(() => {
+    const socketUrl = WS_BASE || (typeof window !== 'undefined' ? window.location.origin : '');
+
+    if (!authToken || !socketUrl) {
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+      return;
+    }
+
+    const socket = io(socketUrl, {
+      transports: ['websocket'],
+      auth: { token: authToken },
+    });
+
+    socket.on('rooms:update', updateFromRoom);
+    socket.on('rooms:removed', (payload: { id: string }) => {
+      if (payload?.id) {
+        removeRoomById(payload.id);
+      }
+    });
+    socket.on('connect_error', (err) => {
+      console.warn('Lobby socket connection failed', err);
+    });
+
+    socketRef.current = socket;
+
+    return () => {
+      socket.off('rooms:update', updateFromRoom);
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [authToken, updateFromRoom, removeRoomById]);
+
   const stats = useMemo(() => {
     if (!tables.length) return null;
 
@@ -194,11 +280,13 @@ export const useLobbyTables = () => {
     return { waiting, playing };
   }, [tables]);
 
+  const refreshLobby = useCallback(() => loadTables(), [loadTables]);
+
   return {
     tables,
     status,
     error,
     stats,
-    refresh: () => loadTables(),
+    refresh: refreshLobby,
   };
 };

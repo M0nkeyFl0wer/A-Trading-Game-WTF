@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { Request, Response } from 'express';
 
 /**
@@ -14,12 +14,11 @@ const keyGenerator = (req: Request): string => {
   if (req.user && req.user.id) {
     return `user:${req.user.id}`;
   }
-  return `ip:${req.ip}`;
+  return `ip:${ipKeyGenerator(req.ip)}`;
 };
 
 // Skip successful requests for certain endpoints
-const skipSuccessfulRequests = (req: Request, res: Response): boolean => {
-  // Don't count successful requests for static assets
+const shouldSkipRequest = (req: Request, res: Response): boolean => {
   if (req.path.match(/\.(js|css|png|jpg|jpeg|gif|svg|ico)$/)) {
     return res.statusCode < 400;
   }
@@ -37,7 +36,7 @@ export const apiLimiter = rateLimit({
   standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
   legacyHeaders: false, // Disable `X-RateLimit-*` headers
   keyGenerator,
-  skipSuccessfulRequests,
+  skip: shouldSkipRequest,
   handler: (req: Request, res: Response) => {
     res.status(429).json({
       error: 'Rate limit exceeded',
@@ -60,7 +59,7 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req: Request): string => {
     // Always use IP for auth endpoints
-    return `auth:${req.ip}`;
+    return `auth:${ipKeyGenerator(req.ip)}`;
   }
 });
 
@@ -79,7 +78,7 @@ export const tradingLimiter = rateLimit({
     if (req.user && req.user.id) {
       return `trade:${req.user.id}`;
     }
-    return `trade:${req.ip}`;
+    return `trade:${ipKeyGenerator(req.ip)}`;
   }
 });
 
@@ -97,7 +96,25 @@ export const botLimiter = rateLimit({
     if (req.user && req.user.id) {
       return `bot:${req.user.id}`;
     }
-    return `bot:${req.ip}`;
+    return `bot:${ipKeyGenerator(req.ip)}`;
+  }
+});
+
+// Voice synthesis proxy limiter
+export const voiceLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 15,
+  message: {
+    error: 'Voice rate limit exceeded.',
+    retryAfter: 1
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request): string => {
+    if (req.user && req.user.id) {
+      return `voice:${req.user.id}`;
+    }
+    return `voice:${ipKeyGenerator(req.ip)}`;
   }
 });
 
@@ -112,7 +129,7 @@ export const wsLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: Request): string => {
-    return `ws:${req.ip}`;
+    return `ws:${ipKeyGenerator(req.ip)}`;
   }
 });
 
@@ -128,7 +145,7 @@ export const accountCreationLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: Request): string => {
-    return `signup:${req.ip}`;
+    return `signup:${ipKeyGenerator(req.ip)}`;
   }
 });
 
@@ -145,7 +162,7 @@ export const passwordResetLimiter = rateLimit({
   keyGenerator: (req: Request): string => {
     // Use both IP and email if available
     const email = req.body?.email || '';
-    return `reset:${req.ip}:${email}`;
+    return `reset:${ipKeyGenerator(req.ip)}:${email}`;
   }
 });
 
@@ -201,30 +218,31 @@ export class IPBlocker {
   private suspiciousActivity: Map<string, number> = new Map();
 
   blockIP(ip: string, duration: number = 3600000): void {
-    this.blockedIPs.add(ip);
+    this.blockedIPs.add(ipKeyGenerator(ip));
     setTimeout(() => {
-      this.blockedIPs.delete(ip);
+      this.blockedIPs.delete(ipKeyGenerator(ip));
     }, duration);
   }
 
   isBlocked(ip: string): boolean {
-    return this.blockedIPs.has(ip);
+    return this.blockedIPs.has(ipKeyGenerator(ip));
   }
 
   reportSuspiciousActivity(ip: string): void {
-    const count = (this.suspiciousActivity.get(ip) || 0) + 1;
-    this.suspiciousActivity.set(ip, count);
+    const normalizedIp = ipKeyGenerator(ip);
+    const count = (this.suspiciousActivity.get(normalizedIp) || 0) + 1;
+    this.suspiciousActivity.set(normalizedIp, count);
 
     // Auto-block after 10 suspicious activities
     if (count >= 10) {
       this.blockIP(ip, 24 * 60 * 60 * 1000); // Block for 24 hours
-      this.suspiciousActivity.delete(ip);
+      this.suspiciousActivity.delete(normalizedIp);
     }
   }
 
   middleware() {
     return (req: Request, res: Response, next: Function) => {
-      if (this.isBlocked(req.ip)) {
+      if (this.isBlocked(ipKeyGenerator(req.ip))) {
         return res.status(403).json({
           error: 'Forbidden',
           message: 'Your IP has been temporarily blocked due to suspicious activity.'
@@ -252,6 +270,7 @@ export const applyRateLimiting = (app: any) => {
   app.use('/api/auth/reset', passwordResetLimiter);
   app.use('/api/trading/', tradingLimiter);
   app.use('/api/bot/', botLimiter);
+  app.use('/api/voice/', voiceLimiter);
   app.use('/ws/', wsLimiter);
 };
 
@@ -260,6 +279,7 @@ export default {
   authLimiter,
   tradingLimiter,
   botLimiter,
+  voiceLimiter,
   wsLimiter,
   accountCreationLimiter,
   passwordResetLimiter,

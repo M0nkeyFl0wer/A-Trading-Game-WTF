@@ -2,7 +2,15 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "types": ["node"]
+    "types": ["node", "mocha", "chai"],
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "verbatimModuleSyntax": false
   },
-  "include": ["./hardhat.config.ts", "./test/**/*.ts", "./scripts/**/*.ts", "./contracts/**/*.sol"]
+  "include": [
+    "./hardhat.config.ts",
+    "./test/**/*.ts",
+    "./scripts/**/*.ts",
+    "./contracts/**/*.sol"
+  ]
 }

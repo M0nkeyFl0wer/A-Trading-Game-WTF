@@ -41,7 +41,7 @@ describe("WTFTradingTable", function () {
     const bal1 = await token.balanceOf(p1.address);
     const bal2 = await token.balanceOf(p2.address);
 
-    expect(bal1).to.equal(ethers.utils.parseEther("204.95"));
-    expect(bal2).to.equal(ethers.utils.parseEther("195"));
+    expect(bal1.toString()).to.equal(ethers.utils.parseEther("204.95").toString());
+    expect(bal2.toString()).to.equal(ethers.utils.parseEther("195").toString());
   });
 });

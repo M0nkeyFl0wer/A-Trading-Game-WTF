@@ -47,7 +47,7 @@ contract WTFTradingTable is Ownable {
     event TradeExecuted(uint256 tableId, uint8 buyer, uint8 seller, uint256 priceTicks);
     event Settled(uint256 tableId);
 
-    constructor(IERC20 _token) {
+    constructor(IERC20 _token) Ownable(msg.sender) {
         token = _token;
     }
 

@@ -2,6 +2,7 @@ import create from 'zustand';
 import { Round } from '@trading-game/core';
 import { DEFAULT_DECK } from '@trading-game/shared';
 import type { CharacterType } from './lib/characterVisuals';
+import { voiceService } from './lib/elevenlabs';
 
 type GamePhase = 'idle' | 'waiting' | 'starting' | 'playing' | 'revealing' | 'finished';
 
@@ -72,99 +73,109 @@ const defaultPlayers: PlayerState[] = [
   { id: 'bot-whale', name: 'The Whale', balance: 1_000, character: 'WHALE', isBot: true },
 ];
 
-export const useGameStore = create<GameState>((set, get) => ({
-  round: null,
-  roundNumber: 0,
-  gamePhase: 'idle',
-  players: defaultPlayers,
-  trades: [],
-  lastAction: null,
-  character: 'DEALER',
-  isVoiceEnabled: true,
-  volume: 0.7,
+const INITIAL_VOLUME = 0.7;
 
-  startRound: () => {
-    const currentPlayers = get().players;
-    const table = {
-      players: currentPlayers.map(player => ({
-        id: player.id,
-        balance: player.balance,
-        position: 0,
-      })),
-      pot: 0,
-    };
+export const useGameStore = create<GameState>((set, get) => {
+  voiceService.setVolume(INITIAL_VOLUME);
 
-    const round = new Round(table, [...DEFAULT_DECK]);
-    try {
-      round.deal();
-    } catch (error) {
-      console.warn('Round deal failed; continuing without dealt cards', error);
-    }
-
-    set(state => ({
-      round,
-      roundNumber: state.roundNumber + 1,
-      gamePhase: 'playing',
-      trades: [],
-      lastAction: null,
-      players: state.players.map(player => ({ ...player, isWinner: false })),
-    }));
-  },
-
-  endRound: (winnerId) => {
-    set(state => ({
-      round: null,
-      gamePhase: 'finished',
-      lastAction: winnerId
-        ? { type: 'win_round', player: winnerId }
-        : state.lastAction,
-      players: state.players.map(player => ({
-        ...player,
-        isWinner: winnerId ? player.id === winnerId : false,
-      })),
-    }));
-  },
-
-  resetGame: () => set({
+  return {
     round: null,
     roundNumber: 0,
     gamePhase: 'idle',
+    players: defaultPlayers,
     trades: [],
     lastAction: null,
-    players: defaultPlayers.map(player => ({ ...player })),
-  }),
+    character: 'DEALER',
+    isVoiceEnabled: true,
+    volume: INITIAL_VOLUME,
 
-  setGamePhase: (phase) => set({ gamePhase: phase }),
+    startRound: () => {
+      const currentPlayers = get().players;
+      const table = {
+        players: currentPlayers.map(player => ({
+          id: player.id,
+          balance: player.balance,
+          position: 0,
+        })),
+        pot: 0,
+      };
 
-  setPlayers: (players) => set({ players: players.map(player => ({ ...player })) }),
+      const round = new Round(table, [...DEFAULT_DECK]);
+      try {
+        round.deal();
+      } catch (error) {
+        console.warn('Round deal failed; continuing without dealt cards', error);
+      }
 
-  recordTrade: (trade) => {
-    const tradeEvent: TradeEvent = {
-      id: trade.id ?? `trade-${Date.now()}`,
-      timestamp: trade.timestamp ?? Date.now(),
-      note: trade.note,
-      player: trade.player,
-      counterparty: trade.counterparty,
-      quantity: trade.quantity,
-      price: trade.price,
-      type: trade.type,
-      value: trade.value ?? trade.price * trade.quantity,
-    };
+      set(state => ({
+        round,
+        roundNumber: state.roundNumber + 1,
+        gamePhase: 'playing',
+        trades: [],
+        lastAction: null,
+        players: state.players.map(player => ({ ...player, isWinner: false })),
+      }));
+    },
 
-    set(state => ({
-      trades: [...state.trades.slice(-49), tradeEvent],
-      lastAction: { type: 'trade', player: trade.player, value: tradeEvent.value },
-    }));
-  },
+    endRound: (winnerId) => {
+      set(state => ({
+        round: null,
+        gamePhase: 'finished',
+        lastAction: winnerId
+          ? { type: 'win_round', player: winnerId }
+          : state.lastAction,
+        players: state.players.map(player => ({
+          ...player,
+          isWinner: winnerId ? player.id === winnerId : false,
+        })),
+      }));
+    },
 
-  setLastAction: (action) => set({ lastAction: action }),
+    resetGame: () => set({
+      round: null,
+      roundNumber: 0,
+      gamePhase: 'idle',
+      trades: [],
+      lastAction: null,
+      players: defaultPlayers.map(player => ({ ...player })),
+    }),
 
-  setCharacter: (character) => set({ character }),
+    setGamePhase: (phase) => set({ gamePhase: phase }),
 
-  setVoiceEnabled: (enabled) => set({ isVoiceEnabled: enabled }),
+    setPlayers: (players) => set({ players: players.map(player => ({ ...player })) }),
 
-  setVolume: (volume) => set({ volume: Math.max(0, Math.min(1, volume)) }),
-}));
+    recordTrade: (trade) => {
+      const tradeEvent: TradeEvent = {
+        id: trade.id ?? `trade-${Date.now()}`,
+        timestamp: trade.timestamp ?? Date.now(),
+        note: trade.note,
+        player: trade.player,
+        counterparty: trade.counterparty,
+        quantity: trade.quantity,
+        price: trade.price,
+        type: trade.type,
+        value: trade.value ?? trade.price * trade.quantity,
+      };
+
+      set(state => ({
+        trades: [...state.trades.slice(-49), tradeEvent],
+        lastAction: { type: 'trade', player: trade.player, value: tradeEvent.value },
+      }));
+    },
+
+    setLastAction: (action) => set({ lastAction: action }),
+
+    setCharacter: (character) => set({ character }),
+
+    setVoiceEnabled: (enabled) => set({ isVoiceEnabled: enabled }),
+
+    setVolume: (volume) => {
+      const clamped = Math.max(0, Math.min(1, volume));
+      voiceService.setVolume(clamped);
+      set({ volume: clamped });
+    },
+  };
+});
 
 // Alias for compatibility with voice hook
 export const useStore = useGameStore;

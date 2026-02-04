@@ -7,6 +7,11 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "paths": {
+      "@trading-game/shared": ["./packages/shared/src/index.ts"],
+      "@trading-game/core": ["./packages/core/src/index.ts"],
+      "@trading-game/bot": ["./packages/bot/src/index.ts"]
+    }
   }
 }

@@ -28,6 +28,9 @@ export function computeEV(cardDelta: number): number {
   return 61.2 + cardDelta;
 }
 
+export * from './security';
+export * from './voice';
+
 // ============================================================================
 // Character Types (moved from web app for cross-package use)
 // ============================================================================

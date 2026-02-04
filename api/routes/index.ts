@@ -1,118 +1,44 @@
 import { Router, Request, Response } from 'express';
+import { roomService } from '../services/roomService';
+import { metrics } from '../lib/metrics';
 
-const router = Router();
+const router: Router = Router();
 
-/**
- * API root and health check routes
- */
-
-// API root
-router.get('/', (req: Request, res: Response) => {
+router.get('/', (_req: Request, res: Response) => {
   res.json({
     name: 'A Trading Game WTF API',
     version: '1.0.0',
     status: 'running',
+    metrics: metrics.snapshotMetrics(),
     endpoints: {
       health: '/api/health',
-      auth: '/api/auth',
-      trading: '/api/trading',
-      bot: '/api/bot',
-      room: '/api/room',
-      user: '/api/user',
+      rooms: '/api/rooms',
       characters: '/api/characters',
-      rooms: '/api/rooms'
-    }
+      voice: '/api/voice',
+      bot: '/api/bot',
+    },
   });
 });
 
-// Health check endpoint
-router.get('/health', (req: Request, res: Response) => {
-  res.status(200).json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    environment: process.env.NODE_ENV || 'development'
-  });
-});
-
-// Characters endpoint (public)
-router.get('/characters', (req: Request, res: Response) => {
+router.get('/characters', (_req: Request, res: Response) => {
   res.status(200).json({
     characters: [
-      {
-        id: 'DEALER',
-        name: 'The Dealer',
-        description: 'Professional and neutral narrator',
-        voiceId: 'EXAVITQu4vr4xnSDxMaL',
-        riskTolerance: 0.5,
-        emoji: '🎰'
-      },
-      {
-        id: 'BULL',
-        name: 'Bull Runner',
-        description: 'Optimistic trader who loves the uptrend',
-        voiceId: '21m00Tcm4TlvDq8ikWAM',
-        riskTolerance: 0.8,
-        emoji: '🐂'
-      },
-      {
-        id: 'BEAR',
-        name: 'Bear Necessities',
-        description: 'Pessimistic analyst who sees the downside',
-        voiceId: 'AZnzlk1XvdvUeBnXmlld',
-        riskTolerance: 0.3,
-        emoji: '🐻'
-      },
-      {
-        id: 'WHALE',
-        name: 'The Whale',
-        description: 'Big player who moves markets',
-        voiceId: 'pNInz6obpgDQGcFmaJgB',
-        riskTolerance: 0.9,
-        emoji: '🐋'
-      },
-      {
-        id: 'ROOKIE',
-        name: 'Fresh Trader',
-        description: 'Enthusiastic beginner learning the ropes',
-        voiceId: 'yoZ06aMxZJJ28mfd3POQ',
-        riskTolerance: 0.5,
-        emoji: '🎯'
-      }
-    ]
+      { id: 'DEALER', name: 'The Dealer', description: 'Professional and neutral', voiceId: 'EXAVITQu4vr4xnSDxMaL' },
+      { id: 'BULL', name: 'Bull Runner', description: 'Optimistic trader', voiceId: '21m00Tcm4TlvDq8ikWAM' },
+      { id: 'BEAR', name: 'Bear Necessities', description: 'Pessimistic analyst', voiceId: 'AZnzlk1XvdvUeBnXmlld' },
+      { id: 'WHALE', name: 'The Whale', description: 'Big player', voiceId: 'pNInz6obpgDQGcFmaJgB' },
+      { id: 'ROOKIE', name: 'Fresh Trader', description: 'Enthusiastic beginner', voiceId: 'yoZ06aMxZJJ28mfd3POQ' },
+    ],
   });
 });
 
-// Rooms endpoint (public list)
-router.get('/rooms', (req: Request, res: Response) => {
-  res.status(200).json({
-    rooms: [
-      {
-        id: 'lobby',
-        name: 'Main Lobby',
-        players: 0,
-        maxPlayers: 100,
-        status: 'open',
-        type: 'lobby'
-      }
-    ]
-  });
-});
-
-// 404 handler for undefined API routes
-router.use('*', (req: Request, res: Response) => {
-  res.status(404).json({
-    error: 'Not Found',
-    message: `API endpoint ${req.originalUrl} does not exist`,
-    availableEndpoints: [
-      '/api/health',
-      '/api/auth/login',
-      '/api/auth/signup',
-      '/api/characters',
-      '/api/rooms'
-    ]
-  });
+router.get('/rooms', async (_req: Request, res: Response) => {
+  try {
+    const rooms = await roomService.listRooms();
+    res.status(200).json({ rooms });
+  } catch (error) {
+    res.status(500).json({ error: 'Unable to list rooms' });
+  }
 });
 
 export default router;

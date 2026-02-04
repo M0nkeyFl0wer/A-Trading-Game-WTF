@@ -5,7 +5,10 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -b",
-    "test": "vitest"
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "joi": "^18.0.1"
   },
   "devDependencies": {
     "typescript": "^5.4.0",
