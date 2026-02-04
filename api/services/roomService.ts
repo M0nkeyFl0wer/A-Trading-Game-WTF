@@ -1,7 +1,7 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { getFirestoreInstance } from '../lib/firebaseAdmin';
 import { emitRoomUpdated, emitRoomRemoved } from '../lib/roomEvents';
-import { gameEngine, type RoomGameState } from './gameEngine';
+import { gameEngine, type RoomGameState, type TradeSummary } from './gameEngine';
 
 export type RoomStatus = 'waiting' | 'playing' | 'starting' | 'finished';
 
@@ -27,6 +27,8 @@ export interface RoomRecord {
   updatedAt: number;
   roundNumber: number;
   gameState?: RoomGameState;
+  roundEndsAt?: number;
+  pendingTrades?: TradeSummary[];
 }
 
 export class RoomServiceError extends Error {
@@ -40,6 +42,7 @@ const createRoomId = () => `room_${Math.random().toString(36).slice(2, 8).toUppe
 
 const DEFAULT_BALANCE = 1_000;
 const CHARACTER_SEQUENCE = ['DEALER', 'BULL', 'BEAR', 'WHALE', 'ROOKIE'];
+const TRADING_WINDOW_MS = 20_000;
 
 const createPlayer = (id: string, name: string, index: number): RoomPlayer => ({
   id,
@@ -51,6 +54,7 @@ const createPlayer = (id: string, name: string, index: number): RoomPlayer => ({
 
 export class RoomService {
   private memoryRooms = new Map<string, RoomRecord>();
+  private roundTimers = new Map<string, NodeJS.Timeout>();
   private db: Firestore | null;
 
   constructor(firestore: Firestore | null) {
@@ -95,6 +99,7 @@ export class RoomService {
       createdAt: now,
       updatedAt: now,
       roundNumber: 0,
+      pendingTrades: [],
     };
 
     if (!this.db) {
@@ -135,6 +140,11 @@ export class RoomService {
       emitRoomUpdated(updated);
       if (updated.players.length === 0) {
         emitRoomRemoved({ id: updated.id });
+        const timer = this.roundTimers.get(roomId);
+        if (timer) {
+          clearTimeout(timer);
+          this.roundTimers.delete(roomId);
+        }
       }
       return updated;
     }
@@ -151,6 +161,11 @@ export class RoomService {
       if (updated.players.length === 0) {
         tx.delete(ref);
         emitRoomRemoved({ id: updated.id });
+        const timer = this.roundTimers.get(roomId);
+        if (timer) {
+          clearTimeout(timer);
+          this.roundTimers.delete(roomId);
+        }
       } else {
         tx.set(ref, updated);
         emitRoomUpdated(updated);
@@ -159,17 +174,53 @@ export class RoomService {
     });
   }
 
-  async startRoom(roomId: string, requesterId: string): Promise<RoomRecord> {
-    const updateState = (room: RoomRecord): RoomRecord => {
-      if (room.hostId !== requesterId) {
-        throw new RoomServiceError(403, 'Only the host can start the game');
+  async submitTrade(
+    roomId: string,
+    playerId: string,
+    trade: { price: number; quantity: number; side: 'buy' | 'sell' },
+  ): Promise<RoomRecord> {
+    const applyTrade = (room: RoomRecord): RoomRecord => {
+      if (room.status !== 'playing') {
+        throw new RoomServiceError(400, 'Round is not accepting trades');
       }
-      if (room.players.length < 2) {
-        throw new RoomServiceError(400, 'At least two players required to start');
+      const player = room.players.find((p) => p.id === playerId);
+      if (!player) {
+        throw new RoomServiceError(404, 'Player not found in room');
       }
-      room.status = 'starting';
-      room.updatedAt = Date.now();
-      return room;
+      const counterparties = room.players.filter((p) => p.id !== playerId);
+      const counterparty = counterparties[Math.floor(Math.random() * counterparties.length)] || player;
+      const summary: TradeSummary = {
+        id: `trade_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        playerId,
+        playerName: player.name,
+        counterpartyId: counterparty.id,
+        counterpartyName: counterparty.name,
+        quantity: trade.quantity,
+        price: trade.price,
+        value: trade.price * trade.quantity,
+        type: trade.side,
+        timestamp: Date.now(),
+      };
+      const pending = [...(room.pendingTrades ?? []), summary];
+      const gameState: RoomGameState = room.gameState || {
+        roundNumber: room.roundNumber,
+        phase: room.status,
+        communityCards: [],
+        trades: [],
+        playerCards: [],
+        updatedAt: Date.now(),
+      };
+      const updatedGameState: RoomGameState = {
+        ...gameState,
+        trades: [...(gameState.trades ?? []), summary],
+        updatedAt: Date.now(),
+      };
+      return {
+        ...room,
+        pendingTrades: pending,
+        gameState: updatedGameState,
+        updatedAt: Date.now(),
+      };
     };
 
     if (!this.db) {
@@ -177,11 +228,10 @@ export class RoomService {
       if (!room) {
         throw new RoomServiceError(404, 'Room not found');
       }
-      const updated = updateState({ ...room, players: [...room.players] });
-      const finalRoom = this.finalizeRound(updated);
-      this.memoryRooms.set(roomId, finalRoom);
-      emitRoomUpdated(finalRoom);
-      return finalRoom;
+      const updated = applyTrade({ ...room, players: [...room.players] });
+      this.memoryRooms.set(roomId, updated);
+      emitRoomUpdated(updated);
+      return updated;
     }
 
     return this.db.runTransaction(async (tx) => {
@@ -191,11 +241,53 @@ export class RoomService {
         throw new RoomServiceError(404, 'Room not found');
       }
       const room = snapshot.data() as RoomRecord;
-      const updated = updateState(room);
-      const finalRoom = this.finalizeRound(updated);
-      tx.set(ref, finalRoom);
-      emitRoomUpdated(finalRoom);
-      return finalRoom;
+      const updated = applyTrade(room);
+      tx.set(ref, updated);
+      return updated;
+    }).then((updated) => {
+      emitRoomUpdated(updated);
+      return updated;
+    });
+  }
+
+  async startRoom(roomId: string, requesterId: string): Promise<RoomRecord> {
+    const canStart = (room: RoomRecord) => {
+      if (room.hostId !== requesterId) {
+        throw new RoomServiceError(403, 'Only the host can start the game');
+      }
+      if (room.players.length < 2) {
+        throw new RoomServiceError(400, 'At least two players required to start');
+      }
+    };
+
+    if (!this.db) {
+      const room = this.memoryRooms.get(roomId);
+      if (!room) {
+        throw new RoomServiceError(404, 'Room not found');
+      }
+      canStart(room);
+      const prepared = this.prepareRound({ ...room, players: [...room.players] });
+      this.memoryRooms.set(roomId, prepared);
+      emitRoomUpdated(prepared);
+      this.scheduleRoundSettlement(roomId);
+      return prepared;
+    }
+
+    return this.db.runTransaction(async (tx) => {
+      const ref = this.db!.collection('rooms').doc(roomId);
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) {
+        throw new RoomServiceError(404, 'Room not found');
+      }
+      const room = snapshot.data() as RoomRecord;
+      canStart(room);
+      const prepared = this.prepareRound(room);
+      tx.set(ref, prepared);
+      return prepared;
+    }).then((prepared) => {
+      emitRoomUpdated(prepared);
+      this.scheduleRoundSettlement(roomId);
+      return prepared;
     });
   }
 
@@ -247,16 +339,84 @@ export class RoomService {
     return updated;
   }
 
+  private prepareRound(room: RoomRecord): RoomRecord {
+    const roundNumber = room.roundNumber + 1;
+    const roundEndsAt = Date.now() + TRADING_WINDOW_MS;
+    return {
+      ...room,
+      status: 'playing',
+      roundNumber,
+      roundEndsAt,
+      pendingTrades: [],
+      gameState: {
+        roundNumber,
+        phase: 'playing',
+        communityCards: [],
+        trades: [],
+        playerCards: [],
+        updatedAt: Date.now(),
+      },
+      updatedAt: Date.now(),
+    };
+  }
+
   private finalizeRound(room: RoomRecord): RoomRecord {
-    const result = gameEngine.startRound(room);
+    const result = gameEngine.completeRound(room, room.pendingTrades ?? []);
     return {
       ...room,
       status: result.status,
       players: result.players,
       roundNumber: result.roundNumber,
       gameState: result.gameState,
+      pendingTrades: [],
+      roundEndsAt: undefined,
       updatedAt: Date.now(),
     };
+  }
+
+  private scheduleRoundSettlement(roomId: string) {
+    const existing = this.roundTimers.get(roomId);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    const timer = setTimeout(() => {
+      this.settleRound(roomId).catch((error) => {
+        console.error('Failed to settle round', error);
+      });
+    }, TRADING_WINDOW_MS);
+    this.roundTimers.set(roomId, timer);
+  }
+
+  private async settleRound(roomId: string): Promise<RoomRecord | null> {
+    this.roundTimers.delete(roomId);
+
+    if (!this.db) {
+      const room = this.memoryRooms.get(roomId);
+      if (!room) {
+        return null;
+      }
+      const finalized = this.finalizeRound({ ...room, players: [...room.players] });
+      this.memoryRooms.set(roomId, finalized);
+      emitRoomUpdated(finalized);
+      return finalized;
+    }
+
+    const finalized = await this.db.runTransaction(async (tx) => {
+      const ref = this.db!.collection('rooms').doc(roomId);
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) {
+        return null;
+      }
+      const room = snapshot.data() as RoomRecord;
+      const updated = this.finalizeRound(room);
+      tx.set(ref, updated);
+      return updated;
+    });
+
+    if (finalized) {
+      emitRoomUpdated(finalized);
+    }
+    return finalized;
   }
 
   private joinMemoryRoom(roomId: string, player: { id: string; name: string }): RoomRecord {

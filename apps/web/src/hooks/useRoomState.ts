@@ -13,8 +13,10 @@ type HookStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 interface ServerTradeSummary {
   id: string;
-  player: string;
-  counterparty: string;
+  playerId: string;
+  playerName: string;
+  counterpartyId: string;
+  counterpartyName: string;
   quantity: number;
   price: number;
   value: number;
@@ -32,6 +34,7 @@ interface NormalizedRoom {
   updatedAt: number;
   roundNumber?: number;
   trades?: ServerTradeSummary[];
+  roundEndsAt?: number;
 }
 
 const statusToPhaseMap: Record<string, GamePhase> = {
@@ -105,6 +108,7 @@ const normalizeRoom = (payload: any): NormalizedRoom | null => {
     trades: Array.isArray(payload.gameState?.trades)
       ? (payload.gameState.trades as ServerTradeSummary[])
       : undefined,
+    roundEndsAt: payload.roundEndsAt ? Number(payload.roundEndsAt) : undefined,
   };
 };
 
@@ -112,8 +116,8 @@ const mapTradesToEvents = (trades: ServerTradeSummary[]): TradeEvent[] =>
   trades.map((trade) => ({
     id: trade.id,
     timestamp: trade.timestamp,
-    player: trade.player,
-    counterparty: trade.counterparty,
+    player: trade.playerName ?? trade.playerId,
+    counterparty: trade.counterpartyName ?? trade.counterpartyId,
     quantity: trade.quantity,
     price: trade.price,
     value: trade.value,
