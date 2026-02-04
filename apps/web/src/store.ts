@@ -13,6 +13,7 @@ export interface PlayerState {
   character: CharacterType;
   isBot?: boolean;
   isWinner?: boolean;
+  cardValue?: number;
 }
 
 export interface TradeEvent {

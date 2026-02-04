@@ -11,6 +11,8 @@ import { useGameStore } from '../store';
 import { useRoomState } from '../hooks/useRoomState';
 import { useAuth } from '../contexts/AuthContext';
 
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+
 export default function TablePage() {
   const { id } = useParams<{ id: string }>();
   const { room, status: roomStatus, error: roomError } = useRoomState(id);
@@ -24,7 +26,7 @@ export default function TablePage() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [startingRound, setStartingRound] = useState(false);
   const { currentUser } = useAuth();
-  const isHost = Boolean(currentUser && room?.hostId && room.hostId === currentUser.uid);
+  const isHost = Boolean(currentUser && room?.hostId && currentUser.uid === room.hostId);
 
   const { queueVoice, announceEvent, playCharacterReaction } = useGameVoice({
     enabled: voiceEnabled,
@@ -97,7 +99,7 @@ export default function TablePage() {
     setActionMessage(null);
     try {
       const token = await currentUser.getIdToken();
-      const response = await fetch(`${(import.meta.env.VITE_API_URL || '').replace(/\/$/, '')}/api/room/${id}/start`, {
+      const response = await fetch(`${API_BASE}/api/room/${id}/start`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -159,7 +161,7 @@ export default function TablePage() {
             <p className="card__subtitle">
               House updates: {roundPhaseLabel}. Keep an eye on the clock and your opponents.
             </p>
-            <TimerBar seconds={timeLeft} label="Trading window" />
+            <TimerBar seconds={timeLeft} label={isTradingActive ? 'Trading window' : 'Waiting for host'} />
           </section>
 
           <SeatAvatars />
