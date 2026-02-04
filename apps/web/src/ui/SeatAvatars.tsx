@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { useGameStore, PlayerState } from '../store';
+import { useGameStore } from '../store';
+import type { PlayerState } from '../store';
 
 const balanceFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -60,6 +61,11 @@ export default function SeatAvatars() {
               <small style={{ color: 'var(--text-secondary)' }}>
                 Balance {balanceFormatter.format(player.balance)}
               </small>
+              {typeof player.cardValue === 'number' && (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  Card value: <strong>{player.cardValue}</strong>
+                </div>
+              )}
               {player.isBot && (
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                   🤖 Bot opponent

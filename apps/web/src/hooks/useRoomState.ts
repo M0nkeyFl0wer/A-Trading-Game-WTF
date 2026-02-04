@@ -66,7 +66,11 @@ const buildSocketUrl = (): string | null => {
 const mapStatusToPhase = (status?: string): GamePhase =>
   statusToPhaseMap[status || 'idle'] ?? 'idle';
 
-const normalizePlayers = (players: unknown, hostName: string): PlayerState[] => {
+const normalizePlayers = (
+  players: unknown,
+  hostName: string,
+  cardValues?: Map<string, number>,
+): PlayerState[] => {
   if (!players) {
     return [];
   }
@@ -82,14 +86,17 @@ const normalizePlayers = (players: unknown, hostName: string): PlayerState[] => 
     const character = typeof entry.character === 'string'
       ? (entry.character as PlayerState['character'])
       : (['DEALER', 'BULL', 'BEAR', 'WHALE', 'ROOKIE'] as PlayerState['character'][])[index % 5];
+    const id = sanitizeInput(String(entry.id ?? `player-${index}`));
+    const cardValue = cardValues?.get(id) ?? (typeof entry.cardValue === 'number' ? Number(entry.cardValue) : undefined);
 
     return {
-      id: sanitizeInput(String(entry.id ?? `player-${index}`)),
+      id,
       name: sanitizeInput(String(entry.name ?? hostName ?? `Trader ${index + 1}`)),
       balance: Number(entry.balance ?? 1000),
       character,
       isBot: Boolean(entry.isBot),
       isWinner: Boolean(entry.isWinner),
+      cardValue,
     } satisfies PlayerState;
   });
 };
@@ -97,6 +104,14 @@ const normalizePlayers = (players: unknown, hostName: string): PlayerState[] => 
 const normalizeRoom = (payload: any): NormalizedRoom | null => {
   if (!payload) return null;
   const hostName = sanitizeInput(String(payload.hostName ?? 'Dealer'));
+  const cardValues = new Map<string, number>();
+  if (Array.isArray(payload.gameState?.playerCards)) {
+    for (const entry of payload.gameState.playerCards) {
+      if (entry?.id) {
+        cardValues.set(String(entry.id), Number(entry.value ?? entry.cardValue ?? 0));
+      }
+    }
+  }
   return {
     id: sanitizeInput(String(payload.id ?? 'room')),
     name: sanitizeInput(String(payload.name ?? 'Trading Table')),
@@ -104,7 +119,7 @@ const normalizeRoom = (payload: any): NormalizedRoom | null => {
     hostName,
     hostId: payload.hostId ? sanitizeInput(String(payload.hostId)) : undefined,
     maxPlayers: Number(payload.maxPlayers ?? 6),
-    players: normalizePlayers(payload.players, hostName),
+    players: normalizePlayers(payload.players, hostName, cardValues),
     updatedAt: Number(payload.updatedAt ?? Date.now()),
     roundNumber: Number(payload.roundNumber ?? payload.gameState?.roundNumber ?? 0) || undefined,
     trades: Array.isArray(payload.gameState?.trades)
