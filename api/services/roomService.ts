@@ -43,6 +43,12 @@ const createRoomId = () => `room_${Math.random().toString(36).slice(2, 8).toUppe
 const DEFAULT_BALANCE = 1_000;
 const CHARACTER_SEQUENCE = ['DEALER', 'BULL', 'BEAR', 'WHALE', 'ROOKIE'];
 const TRADING_WINDOW_MS = 20_000;
+const NEXT_ROUND_DELAY_MS = 5_000;
+
+type RoomTimers = {
+  settle?: NodeJS.Timeout;
+  nextRound?: NodeJS.Timeout;
+};
 
 const createPlayer = (id: string, name: string, index: number): RoomPlayer => ({
   id,
@@ -54,11 +60,16 @@ const createPlayer = (id: string, name: string, index: number): RoomPlayer => ({
 
 export class RoomService {
   private memoryRooms = new Map<string, RoomRecord>();
-  private roundTimers = new Map<string, NodeJS.Timeout>();
+  private timers = new Map<string, RoomTimers>();
   private db: Firestore | null;
 
   constructor(firestore: Firestore | null) {
     this.db = firestore;
+    if (this.db) {
+      this.restoreActiveRounds().catch((error) => {
+        console.error('Failed to restore active rounds', error);
+      });
+    }
   }
 
   async listRooms(): Promise<RoomRecord[]> {
@@ -140,11 +151,7 @@ export class RoomService {
       emitRoomUpdated(updated);
       if (updated.players.length === 0) {
         emitRoomRemoved({ id: updated.id });
-        const timer = this.roundTimers.get(roomId);
-        if (timer) {
-          clearTimeout(timer);
-          this.roundTimers.delete(roomId);
-        }
+        this.clearTimers(roomId);
       }
       return updated;
     }
@@ -161,11 +168,7 @@ export class RoomService {
       if (updated.players.length === 0) {
         tx.delete(ref);
         emitRoomRemoved({ id: updated.id });
-        const timer = this.roundTimers.get(roomId);
-        if (timer) {
-          clearTimeout(timer);
-          this.roundTimers.delete(roomId);
-        }
+        this.clearTimers(roomId);
       } else {
         tx.set(ref, updated);
         emitRoomUpdated(updated);
@@ -374,21 +377,24 @@ export class RoomService {
     };
   }
 
-  private scheduleRoundSettlement(roomId: string) {
-    const existing = this.roundTimers.get(roomId);
-    if (existing) {
-      clearTimeout(existing);
+  private scheduleRoundSettlement(roomId: string, delayMs = TRADING_WINDOW_MS) {
+    const timers = this.getTimers(roomId);
+    if (timers.settle) {
+      clearTimeout(timers.settle);
     }
-    const timer = setTimeout(() => {
+    timers.settle = setTimeout(() => {
       this.settleRound(roomId).catch((error) => {
         console.error('Failed to settle round', error);
       });
-    }, TRADING_WINDOW_MS);
-    this.roundTimers.set(roomId, timer);
+    }, delayMs);
   }
 
   private async settleRound(roomId: string): Promise<RoomRecord | null> {
-    this.roundTimers.delete(roomId);
+    const timers = this.getTimers(roomId);
+    if (timers.settle) {
+      clearTimeout(timers.settle);
+      timers.settle = undefined;
+    }
 
     if (!this.db) {
       const room = this.memoryRooms.get(roomId);
@@ -398,6 +404,7 @@ export class RoomService {
       const finalized = this.finalizeRound({ ...room, players: [...room.players] });
       this.memoryRooms.set(roomId, finalized);
       emitRoomUpdated(finalized);
+      this.scheduleNextRound(roomId, finalized);
       return finalized;
     }
 
@@ -415,8 +422,65 @@ export class RoomService {
 
     if (finalized) {
       emitRoomUpdated(finalized);
+      this.scheduleNextRound(roomId, finalized);
     }
     return finalized;
+  }
+
+  private scheduleNextRound(roomId: string, room: RoomRecord) {
+    if (room.players.length < 2) {
+      return;
+    }
+    const timers = this.getTimers(roomId);
+    if (timers.nextRound) {
+      clearTimeout(timers.nextRound);
+    }
+    timers.nextRound = setTimeout(() => {
+      this.beginAutomatedRound(roomId).catch((error) => {
+        console.error('Failed to start next round', error);
+      });
+    }, NEXT_ROUND_DELAY_MS);
+  }
+
+  private async beginAutomatedRound(roomId: string): Promise<RoomRecord | null> {
+    const timers = this.getTimers(roomId);
+    if (timers.nextRound) {
+      clearTimeout(timers.nextRound);
+      timers.nextRound = undefined;
+    }
+
+    if (!this.db) {
+      const room = this.memoryRooms.get(roomId);
+      if (!room || room.players.length < 2) {
+        return room ?? null;
+      }
+      const prepared = this.prepareRound({ ...room, players: [...room.players] });
+      this.memoryRooms.set(roomId, prepared);
+      emitRoomUpdated(prepared);
+      this.scheduleRoundSettlement(roomId);
+      return prepared;
+    }
+
+    const prepared = await this.db.runTransaction(async (tx) => {
+      const ref = this.db!.collection('rooms').doc(roomId);
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) {
+        return null;
+      }
+      const room = snapshot.data() as RoomRecord;
+      if (room.players.length < 2) {
+        return room;
+      }
+      const updated = this.prepareRound(room);
+      tx.set(ref, updated);
+      return updated;
+    });
+
+    if (prepared) {
+      emitRoomUpdated(prepared);
+      this.scheduleRoundSettlement(roomId);
+    }
+    return prepared;
   }
 
   private joinMemoryRoom(roomId: string, player: { id: string; name: string }): RoomRecord {
@@ -437,10 +501,49 @@ export class RoomService {
     const updated = this.leaveRoomState({ ...room, players: [...room.players] }, playerId);
     if (updated.players.length === 0) {
       this.memoryRooms.delete(roomId);
+      this.clearTimers(roomId);
     } else {
       this.memoryRooms.set(roomId, updated);
     }
     return updated;
+  }
+
+  private getTimers(roomId: string): RoomTimers {
+    let timers = this.timers.get(roomId);
+    if (!timers) {
+      timers = {};
+      this.timers.set(roomId, timers);
+    }
+    return timers;
+  }
+
+  private clearTimers(roomId: string) {
+    const timers = this.timers.get(roomId);
+    if (!timers) {
+      return;
+    }
+    if (timers.settle) {
+      clearTimeout(timers.settle);
+    }
+    if (timers.nextRound) {
+      clearTimeout(timers.nextRound);
+    }
+    this.timers.delete(roomId);
+  }
+
+  private async restoreActiveRounds() {
+    if (!this.db) {
+      return;
+    }
+    const snapshot = await this.db.collection('rooms').where('status', '==', 'playing').get();
+    const now = Date.now();
+    snapshot.docs.forEach((doc) => {
+      const room = doc.data() as RoomRecord;
+      if (room.roundEndsAt && room.roundEndsAt > now) {
+        const delay = Math.max(1_000, room.roundEndsAt - now);
+        this.scheduleRoundSettlement(room.id, delay);
+      }
+    });
   }
 }
 
