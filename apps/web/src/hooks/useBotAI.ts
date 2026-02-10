@@ -1,40 +1,26 @@
 import { useEffect, useRef } from 'react';
-import { useGameStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
 const BOT_ROSTER = [
-  { id: 'bot-bull', name: 'Bull Runner', character: 'BULL' },
-  { id: 'bot-bear', name: 'Bear Necessities', character: 'BEAR' },
-  { id: 'bot-whale', name: 'The Whale', character: 'WHALE' },
+  { botId: 'bot-bull', botName: 'Bull Runner', botCharacter: 'BULL' },
+  { botId: 'bot-bear', botName: 'Bear Necessities', botCharacter: 'BEAR' },
+  { botId: 'bot-whale', botName: 'The Whale', botCharacter: 'WHALE' },
 ] as const;
 
-/**
- * Adds bot opponents to the room when fewer than 4 players are seated.
- * Bots trade automatically via the server-side GameEngine.generateBotTrades().
- */
 export function useBotAI(roomId?: string) {
-  const players = useGameStore((s) => s.players);
-  const gamePhase = useGameStore((s) => s.gamePhase);
   const { currentUser } = useAuth();
-  const addedRef = useRef(false);
+  const addedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!roomId || !currentUser || addedRef.current) return;
-    if (gamePhase !== 'waiting' && gamePhase !== 'idle') return;
-
-    // Only add bots if the table has fewer than 4 players
-    const humanCount = players.filter((p) => !p.isBot).length;
-    if (humanCount === 0 || players.length >= 4) return;
-
-    addedRef.current = true;
+    if (!roomId || !currentUser) return;
+    if (addedRef.current === roomId) return;
+    addedRef.current = roomId;
 
     const addBots = async () => {
       const token = await currentUser.getIdToken();
-      const botsToAdd = BOT_ROSTER.slice(0, Math.max(0, 4 - players.length));
-
-      for (const bot of botsToAdd) {
+      for (const bot of BOT_ROSTER) {
         try {
           await fetch(`${API_BASE}/api/room/join/${roomId}`, {
             method: 'POST',
@@ -42,25 +28,14 @@ export function useBotAI(roomId?: string) {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({
-              botId: bot.id,
-              botName: bot.name,
-              botCharacter: bot.character,
-            }),
+            body: JSON.stringify(bot),
           });
         } catch (err) {
-          console.warn(`Failed to add bot ${bot.name}`, err);
+          console.error(`Failed to add bot ${bot.botName}`, err);
         }
       }
     };
 
     addBots();
-  }, [roomId, currentUser, players, gamePhase]);
-
-  // Reset when leaving the room
-  useEffect(() => {
-    return () => {
-      addedRef.current = false;
-    };
-  }, [roomId]);
+  }, [roomId, currentUser]);
 }

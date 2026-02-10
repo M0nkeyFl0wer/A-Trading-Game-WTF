@@ -44,7 +44,7 @@ const DEFAULT_BALANCE = 1_000;
 const CHARACTER_SEQUENCE = ['DEALER', 'BULL', 'BEAR', 'WHALE', 'ROOKIE'];
 const TRADING_WINDOW_MS = 20_000;
 const NEXT_ROUND_DELAY_MS = 5_000;
-const BOT_TRADE_DELAY_MS = 3_000; // bots submit trades a few seconds into the round
+const BOT_TRADE_DELAY_MS = 3_000;
 
 type RoomTimers = {
   settle?: NodeJS.Timeout;
@@ -397,64 +397,31 @@ export class RoomService {
     }, delayMs);
   }
 
-  /**
-   * Schedule bot players to submit trades a few seconds into the round.
-   */
   private scheduleBotTrades(roomId: string) {
     const timers = this.getTimers(roomId);
-    if (timers.botTrades) {
-      clearTimeout(timers.botTrades);
-    }
+    if (timers.botTrades) clearTimeout(timers.botTrades);
     timers.botTrades = setTimeout(() => {
-      this.submitBotTrades(roomId).catch((error) => {
-        console.error('Bot trade generation failed', error);
-      });
+      this.submitBotTrades(roomId).catch((error) => { console.error('Bot trade generation failed', error); });
     }, BOT_TRADE_DELAY_MS);
   }
 
   private async submitBotTrades(roomId: string): Promise<void> {
     const timers = this.getTimers(roomId);
-    if (timers.botTrades) {
-      clearTimeout(timers.botTrades);
-      timers.botTrades = undefined;
-    }
-
+    if (timers.botTrades) { clearTimeout(timers.botTrades); timers.botTrades = undefined; }
     const room = !this.db
       ? this.memoryRooms.get(roomId) ?? null
       : ((await this.db.collection('rooms').doc(roomId).get()).data() as RoomRecord | undefined) ?? null;
-
     if (!room || room.status !== 'playing') return;
-
     const botTrades = gameEngine.generateBotTrades(room);
     if (botTrades.length === 0) return;
-
     const pending = [...(room.pendingTrades ?? []), ...botTrades];
     const updatedGameState = {
-      ...(room.gameState ?? {
-        roundNumber: room.roundNumber,
-        phase: room.status,
-        communityCards: [],
-        trades: [],
-        playerCards: [],
-        updatedAt: Date.now(),
-      }),
+      ...(room.gameState ?? { roundNumber: room.roundNumber, phase: room.status, communityCards: [], trades: [], playerCards: [], updatedAt: Date.now() }),
       trades: [...(room.gameState?.trades ?? []), ...botTrades],
       updatedAt: Date.now(),
     };
-
-    const updated: RoomRecord = {
-      ...room,
-      pendingTrades: pending,
-      gameState: updatedGameState as any,
-      updatedAt: Date.now(),
-    };
-
-    if (!this.db) {
-      this.memoryRooms.set(roomId, updated);
-    } else {
-      await this.db.collection('rooms').doc(roomId).set(updated);
-    }
-
+    const updated: RoomRecord = { ...room, pendingTrades: pending, gameState: updatedGameState as any, updatedAt: Date.now() };
+    if (!this.db) { this.memoryRooms.set(roomId, updated); } else { await this.db.collection('rooms').doc(roomId).set(updated); }
     emitRoomUpdated(updated);
   }
 

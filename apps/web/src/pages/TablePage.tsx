@@ -7,6 +7,7 @@ import SeatAvatars from '../ui/SeatAvatars';
 import GameRulesPanel from '../ui/GameRulesPanel';
 import ConnectWalletButton from '../ui/ConnectWalletButton';
 import VoiceControls from '../ui/VoiceControls';
+import GameRulesPanel from '../ui/GameRulesPanel';
 import { useGameVoice } from '../hooks/useGameVoice';
 import { useBotAI } from '../hooks/useBotAI';
 import { useGameStore } from '../store';
@@ -29,6 +30,7 @@ export default function TablePage() {
   const [startingRound, setStartingRound] = useState(false);
   const { currentUser } = useAuth();
   const isHost = Boolean(currentUser && room?.hostId && currentUser.uid === room.hostId);
+  useBotAI(id);
 
   // Auto-fill empty seats with bot opponents
   useBotAI(id);

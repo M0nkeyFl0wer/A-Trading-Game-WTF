@@ -8,61 +8,27 @@ export default function GameRulesPanel() {
       <button
         type="button"
         className="section-heading"
-        style={{
-          width: '100%',
-          background: 'none',
-          border: 'none',
-          color: 'inherit',
-          cursor: 'pointer',
-          padding: 0,
-        }}
-        onClick={() => setOpen((v) => !v)}
+        style={{ cursor: 'pointer', background: 'none', border: 'none', width: '100%', textAlign: 'left', padding: 0 }}
+        onClick={() => setOpen(prev => !prev)}
         aria-expanded={open}
         aria-controls="rules-content"
       >
-        <h3 id="rules-heading">
-          {open ? '▾' : '▸'} How to play
-        </h3>
-        <span>{open ? 'Hide rules' : 'Show rules'}</span>
+        <h3 id="rules-heading" style={{ margin: 0 }}>How to play</h3>
+        <span>{open ? '▲' : '▼'}</span>
       </button>
 
       {open && (
         <div id="rules-content" style={{ marginTop: 12 }}>
-          <ol style={{ paddingLeft: 20, display: 'grid', gap: 10, lineHeight: 1.5 }}>
-            <li>
-              <strong>Join a table</strong> &mdash; Pick a character and sit down.
-              Bot opponents fill empty seats automatically.
-            </li>
-            <li>
-              <strong>Get your card</strong> &mdash; Each player is dealt a hidden
-              card (value 1&ndash;20). Three community cards are also dealt face-down.
-            </li>
-            <li>
-              <strong>Trade</strong> &mdash; During the 20-second trading window,
-              post a bid/ask quote. Your goal is to buy low and sell high relative
-              to the true card values.
-            </li>
-            <li>
-              <strong>Settlement</strong> &mdash; After the timer expires, all cards
-              are revealed. Your P&amp;L is calculated from:
-              <ul style={{ marginTop: 4, paddingLeft: 16 }}>
-                <li>Your card value vs. the table average (card P&amp;L)</li>
-                <li>Profit or loss from trades you made (position P&amp;L)</li>
-                <li>A small house fee (1%) on trade volume</li>
-              </ul>
-            </li>
-            <li>
-              <strong>Win</strong> &mdash; The player with the highest balance
-              after settlement wins the round. A new round starts automatically.
-            </li>
+          <ol style={{ paddingLeft: 20, margin: 0, lineHeight: 1.7 }}>
+            <li><strong>Join a table</strong> &mdash; pick a seat in the lobby or create your own room.</li>
+            <li><strong>Cards are dealt</strong> &mdash; each player receives a hidden card (value 1&ndash;20).</li>
+            <li><strong>Trading window (20 s)</strong> &mdash; buy or sell shares based on your card and market sentiment.</li>
+            <li><strong>Settlement</strong> &mdash; cards are revealed. P&amp;L = card value + position gains minus a 1% house fee.</li>
+            <li><strong>Winner</strong> &mdash; the player with the highest balance at the end of the session wins.</li>
           </ol>
-
-          <div style={{ marginTop: 16, padding: '10px 14px', background: 'rgba(99,102,241,0.12)', borderRadius: 8 }}>
-            <strong>Tip:</strong> High cards (15, 20) will earn you card P&amp;L,
-            but the real money is in reading the other players and trading well.
-            The &minus;10 card is a trap &mdash; if you get it, sell aggressively
-            to minimize losses.
-          </div>
+          <p style={{ marginTop: 10, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+            Bots will automatically fill empty seats and trade using character-specific strategies.
+          </p>
         </div>
       )}
     </section>

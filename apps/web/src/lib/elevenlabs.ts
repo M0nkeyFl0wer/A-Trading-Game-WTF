@@ -82,7 +82,9 @@ export const CHARACTER_PERSONALITIES = {
 };
 
 export class ElevenLabsService {
-  private audioCache: Map<string, string> = new Map();
+  private audioCache: Map<string, { data: string; accessedAt: number }> = new Map();
+  private static readonly MAX_CACHE_SIZE = 50;
+  private static readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
   private isPlaying = false;
   private audioContext: AudioContext | null = null;
   private currentSource: AudioBufferSourceNode | null = null;
@@ -153,9 +155,10 @@ export class ElevenLabsService {
     }
 
     const cacheKey = `${voiceId}-${style}-${normalizedText}`;
-    if (this.audioCache.has(cacheKey)) {
-      const cached = this.audioCache.get(cacheKey)!;
-      return this.base64ToArrayBuffer(cached);
+    const cached = this.audioCache.get(cacheKey);
+    if (cached) {
+      cached.accessedAt = Date.now();
+      return this.base64ToArrayBuffer(cached.data);
     }
 
     const response = await fetch(VOICE_PROXY_URL, {
@@ -179,7 +182,8 @@ export class ElevenLabsService {
     }
 
     const audioData = await response.arrayBuffer();
-    this.audioCache.set(cacheKey, this.arrayBufferToBase64(audioData));
+    this.evictStaleCache();
+    this.audioCache.set(cacheKey, { data: this.arrayBufferToBase64(audioData), accessedAt: Date.now() });
 
     return audioData;
   }
@@ -395,6 +399,27 @@ export class ElevenLabsService {
       return;
     }
     this.ensureGainNode(this.audioContext);
+  }
+
+  /**
+   * Evict expired and excess entries from the audio cache.
+   */
+  private evictStaleCache(): void {
+    const now = Date.now();
+    // Remove entries older than TTL
+    for (const [key, entry] of this.audioCache) {
+      if (now - entry.accessedAt > ElevenLabsService.CACHE_TTL_MS) {
+        this.audioCache.delete(key);
+      }
+    }
+    // If still over budget, drop least-recently-accessed entries
+    if (this.audioCache.size >= ElevenLabsService.MAX_CACHE_SIZE) {
+      const sorted = [...this.audioCache.entries()].sort((a, b) => a[1].accessedAt - b[1].accessedAt);
+      const toRemove = sorted.slice(0, sorted.length - ElevenLabsService.MAX_CACHE_SIZE + 1);
+      for (const [key] of toRemove) {
+        this.audioCache.delete(key);
+      }
+    }
   }
 
   /**

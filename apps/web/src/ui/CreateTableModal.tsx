@@ -68,20 +68,6 @@ export default function CreateTableModal({
     }
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open]);
-
   const closeModal = () => {
     setOpen(false);
     setFormMessage(null);

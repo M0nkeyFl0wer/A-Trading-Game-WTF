@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './contexts/AuthContext';
 import LobbyPage from './pages/LobbyPage';
 import TablePage from './pages/TablePage';
+import Toaster from './ui/Toaster';
 import './index.css';
 
 // Create wagmi config with mainnet for now (no wallet needed for testing)
@@ -31,6 +32,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
               <Route path="/table/:id" element={<TablePage />} />
             </Routes>
           </BrowserRouter>
+          <Toaster />
         </AuthProvider>
       </QueryClientProvider>
     </WagmiProvider>

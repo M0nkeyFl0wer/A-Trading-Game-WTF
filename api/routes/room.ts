@@ -90,7 +90,7 @@ router.post('/create', async (req: Request, res: Response) => {
   }
 });
 
-// Join a room (supports bot additions via botId/botName/botCharacter body params)
+// Join a room (supports adding bots when botId/botName/botCharacter provided)
 router.post('/join/:roomId', async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -100,27 +100,21 @@ router.post('/join/:roomId', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Room ID is required' });
   }
   try {
-    // Check if this is a bot join request
-    const botId = typeof req.body?.botId === 'string' ? req.body.botId : null;
-    const botName = typeof req.body?.botName === 'string' ? sanitizeInput(req.body.botName) : null;
-
+    const { botId, botName, botCharacter } = req.body ?? {};
     if (botId && botName) {
-      // Verify the requester is in the room (only seated players can add bots)
-      const existingRoom = await roomService.getRoom(roomId);
-      const isSeated = existingRoom.players.some((p) => p.id === req.user!.id);
-      if (!isSeated) {
+      // Verify requester is already seated in the room
+      const existing = await roomService.getRoom(roomId);
+      if (!existing.players.find((p) => p.id === req.user!.id)) {
         return res.status(403).json({ error: 'You must be in the room to add bots' });
       }
-      // Add the bot as a player with isBot flag
       const room = await roomService.joinRoom(roomId, {
-        id: botId,
-        name: botName,
+        id: sanitizeInput(String(botId)).slice(0, 32),
+        name: sanitizeInput(String(botName)).slice(0, 32) || 'Bot',
         isBot: true,
-        character: typeof req.body?.botCharacter === 'string' ? req.body.botCharacter : undefined,
+        character: botCharacter ? sanitizeInput(String(botCharacter)).slice(0, 16) : undefined,
       });
       return res.status(200).json({ success: true, room });
     }
-
     const room = await roomService.joinRoom(roomId, {
       id: req.user.id,
       name: getDisplayName(req),
