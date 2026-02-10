@@ -14,6 +14,12 @@ build/
 packages/contract/artifacts/
 packages/contract/cache/
 
+# TypeScript build artifacts (composite project references)
+*.tsbuildinfo
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+
 # Environment variables
 .env
 .env.local
