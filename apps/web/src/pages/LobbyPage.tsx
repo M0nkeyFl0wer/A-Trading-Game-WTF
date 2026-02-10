@@ -1,7 +1,6 @@
-import { useEffect } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import type { MouseEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { voiceService } from '../lib/elevenlabs';
 import { useGameStore } from '../store';
 import CreateTableModal from '../ui/CreateTableModal';
@@ -130,9 +129,6 @@ export default function LobbyPage() {
           )}
         </div>
         <div className="page__actions">
-          <Link to="/payments" className="button button--neutral">
-            💰 Payments
-          </Link>
           <button type="button" className="button button--ghost" onClick={refresh} disabled={isLoading}>
             🔄 Refresh
           </button>

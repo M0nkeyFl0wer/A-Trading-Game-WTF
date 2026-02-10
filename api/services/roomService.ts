@@ -44,10 +44,12 @@ const DEFAULT_BALANCE = 1_000;
 const CHARACTER_SEQUENCE = ['DEALER', 'BULL', 'BEAR', 'WHALE', 'ROOKIE'];
 const TRADING_WINDOW_MS = 20_000;
 const NEXT_ROUND_DELAY_MS = 5_000;
+const BOT_TRADE_DELAY_MS = 3_000; // bots submit trades a few seconds into the round
 
 type RoomTimers = {
   settle?: NodeJS.Timeout;
   nextRound?: NodeJS.Timeout;
+  botTrades?: NodeJS.Timeout;
 };
 
 const createPlayer = (id: string, name: string, index: number): RoomPlayer => ({
@@ -124,7 +126,7 @@ export class RoomService {
     return room;
   }
 
-  async joinRoom(roomId: string, player: { id: string; name: string }): Promise<RoomRecord> {
+  async joinRoom(roomId: string, player: { id: string; name: string; isBot?: boolean; character?: string }): Promise<RoomRecord> {
     if (!this.db) {
       const updated = this.joinMemoryRoom(roomId, player);
       emitRoomUpdated(updated);
@@ -273,6 +275,7 @@ export class RoomService {
       this.memoryRooms.set(roomId, prepared);
       emitRoomUpdated(prepared);
       this.scheduleRoundSettlement(roomId);
+      this.scheduleBotTrades(roomId);
       return prepared;
     }
 
@@ -290,11 +293,12 @@ export class RoomService {
     }).then((prepared) => {
       emitRoomUpdated(prepared);
       this.scheduleRoundSettlement(roomId);
+      this.scheduleBotTrades(roomId);
       return prepared;
     });
   }
 
-  private joinRoomState(room: RoomRecord, player: { id: string; name: string }): RoomRecord {
+  private joinRoomState(room: RoomRecord, player: { id: string; name: string; isBot?: boolean; character?: string }): RoomRecord {
     if (room.players.find((p) => p.id === player.id)) {
       return room;
     }
@@ -303,7 +307,11 @@ export class RoomService {
       throw new RoomServiceError(400, 'Room is full');
     }
 
-    const newPlayer = createPlayer(player.id, player.name, room.players.length);
+    const newPlayer: RoomPlayer = {
+      ...createPlayer(player.id, player.name, room.players.length),
+      isBot: player.isBot ?? false,
+      ...(player.character ? { character: player.character } : {}),
+    };
 
     const updated: RoomRecord = {
       ...room,
@@ -389,6 +397,67 @@ export class RoomService {
     }, delayMs);
   }
 
+  /**
+   * Schedule bot players to submit trades a few seconds into the round.
+   */
+  private scheduleBotTrades(roomId: string) {
+    const timers = this.getTimers(roomId);
+    if (timers.botTrades) {
+      clearTimeout(timers.botTrades);
+    }
+    timers.botTrades = setTimeout(() => {
+      this.submitBotTrades(roomId).catch((error) => {
+        console.error('Bot trade generation failed', error);
+      });
+    }, BOT_TRADE_DELAY_MS);
+  }
+
+  private async submitBotTrades(roomId: string): Promise<void> {
+    const timers = this.getTimers(roomId);
+    if (timers.botTrades) {
+      clearTimeout(timers.botTrades);
+      timers.botTrades = undefined;
+    }
+
+    const room = !this.db
+      ? this.memoryRooms.get(roomId) ?? null
+      : ((await this.db.collection('rooms').doc(roomId).get()).data() as RoomRecord | undefined) ?? null;
+
+    if (!room || room.status !== 'playing') return;
+
+    const botTrades = gameEngine.generateBotTrades(room);
+    if (botTrades.length === 0) return;
+
+    const pending = [...(room.pendingTrades ?? []), ...botTrades];
+    const updatedGameState = {
+      ...(room.gameState ?? {
+        roundNumber: room.roundNumber,
+        phase: room.status,
+        communityCards: [],
+        trades: [],
+        playerCards: [],
+        updatedAt: Date.now(),
+      }),
+      trades: [...(room.gameState?.trades ?? []), ...botTrades],
+      updatedAt: Date.now(),
+    };
+
+    const updated: RoomRecord = {
+      ...room,
+      pendingTrades: pending,
+      gameState: updatedGameState as any,
+      updatedAt: Date.now(),
+    };
+
+    if (!this.db) {
+      this.memoryRooms.set(roomId, updated);
+    } else {
+      await this.db.collection('rooms').doc(roomId).set(updated);
+    }
+
+    emitRoomUpdated(updated);
+  }
+
   private async settleRound(roomId: string): Promise<RoomRecord | null> {
     const timers = this.getTimers(roomId);
     if (timers.settle) {
@@ -458,6 +527,7 @@ export class RoomService {
       this.memoryRooms.set(roomId, prepared);
       emitRoomUpdated(prepared);
       this.scheduleRoundSettlement(roomId);
+      this.scheduleBotTrades(roomId);
       return prepared;
     }
 
@@ -479,11 +549,12 @@ export class RoomService {
     if (prepared) {
       emitRoomUpdated(prepared);
       this.scheduleRoundSettlement(roomId);
+      this.scheduleBotTrades(roomId);
     }
     return prepared;
   }
 
-  private joinMemoryRoom(roomId: string, player: { id: string; name: string }): RoomRecord {
+  private joinMemoryRoom(roomId: string, player: { id: string; name: string; isBot?: boolean; character?: string }): RoomRecord {
     const room = this.memoryRooms.get(roomId);
     if (!room) {
       throw new RoomServiceError(404, 'Room not found');
@@ -527,6 +598,9 @@ export class RoomService {
     }
     if (timers.nextRound) {
       clearTimeout(timers.nextRound);
+    }
+    if (timers.botTrades) {
+      clearTimeout(timers.botTrades);
     }
     this.timers.delete(roomId);
   }

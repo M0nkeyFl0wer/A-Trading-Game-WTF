@@ -309,8 +309,9 @@ export const applySecurityHeaders = (app: any) => {
   // Apply clickjacking protection
   app.use(clickjackingProtection);
 
-  // Apply response sanitization
-  app.use(sanitizeResponse);
+  // NOTE: sanitizeResponse removed — it HTML-encodes ALL response strings
+  // (including JSON values), corrupting every API response.  Input sanitization
+  // at the route / validation layer is the correct defence against stored XSS.
 
   // Apply API key validation
   app.use(apiKeyValidation);

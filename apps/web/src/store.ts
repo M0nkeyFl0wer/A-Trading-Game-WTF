@@ -107,8 +107,19 @@ export const useGameStore = create<GameState>((set, get) => {
       try {
         round.deal();
       } catch (error) {
-        console.warn('Round deal failed; continuing without dealt cards', error);
+        console.error('[store] Round deal failed:', error);
+        set({ lastAction: null });
+        return;
       }
+
+      const dealtPlayers = currentPlayers.map(player => {
+        const tablePlayer = table.players.find(p => p.id === player.id);
+        return {
+          ...player,
+          isWinner: false,
+          cardValue: tablePlayer?.card?.value,
+        };
+      });
 
       set(state => ({
         round,
@@ -116,7 +127,7 @@ export const useGameStore = create<GameState>((set, get) => {
         gamePhase: 'playing',
         trades: [],
         lastAction: null,
-        players: state.players.map(player => ({ ...player, isWinner: false })),
+        players: dealtPlayers,
       }));
     },
 

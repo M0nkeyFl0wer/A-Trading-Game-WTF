@@ -1,5 +1,5 @@
 import { Round, type Player as TablePlayer, type Trade } from '@trading-game/core';
-import { DEFAULT_DECK } from '@trading-game/shared';
+import { DEFAULT_DECK, computeEV } from '@trading-game/shared';
 import type { RoomPlayer, RoomRecord, RoomStatus } from './roomService';
 import { logger } from '../lib/logger';
 
@@ -32,7 +32,67 @@ interface GameResult {
   gameState: RoomGameState;
 }
 
+// Character-specific trade behaviour for bot players
+const BOT_PROFILES: Record<string, { aggressiveness: number; spreadFactor: number }> = {
+  BULL: { aggressiveness: 0.8, spreadFactor: 0.15 },
+  BEAR: { aggressiveness: 0.5, spreadFactor: 0.25 },
+  WHALE: { aggressiveness: 0.9, spreadFactor: 0.10 },
+  ROOKIE: { aggressiveness: 0.4, spreadFactor: 0.35 },
+  DEALER: { aggressiveness: 0.6, spreadFactor: 0.20 },
+};
+
 export class GameEngine {
+  /**
+   * Generate bot trades for a room's bot players.
+   * Called during the trading window so bots participate automatically.
+   */
+  generateBotTrades(room: RoomRecord): TradeSummary[] {
+    const bots = room.players.filter((p) => p.isBot);
+    const humans = room.players.filter((p) => !p.isBot);
+    if (bots.length === 0) return [];
+
+    const allPlayers = room.players;
+    const trades: TradeSummary[] = [];
+    const timestamp = Date.now();
+
+    for (const bot of bots) {
+      // Each bot gets a simulated "card awareness" based on EV + noise
+      const profile = BOT_PROFILES[bot.character] ?? BOT_PROFILES.DEALER;
+      const cardDelta = (Math.random() - 0.5) * 20; // simulated card awareness
+      const ev = computeEV(cardDelta);
+      const spread = ev * profile.spreadFactor;
+      const bid = Number((ev - spread / 2).toFixed(2));
+      const ask = Number((ev + spread / 2).toFixed(2));
+
+      // Decide trade direction based on aggressiveness
+      const isBuying = Math.random() < profile.aggressiveness;
+      const price = isBuying ? ask : bid;
+      const quantity = 1 + Math.floor(Math.random() * 3);
+
+      // Pick a counterparty: prefer humans, fall back to other bots
+      const counterpartyCandidates = humans.length > 0
+        ? humans
+        : allPlayers.filter((p) => p.id !== bot.id);
+      if (counterpartyCandidates.length === 0) continue;
+      const counterparty = counterpartyCandidates[Math.floor(Math.random() * counterpartyCandidates.length)];
+
+      trades.push({
+        id: `bot-${bot.id}-${timestamp}`,
+        playerId: bot.id,
+        playerName: bot.name,
+        counterpartyId: counterparty.id,
+        counterpartyName: counterparty.name,
+        quantity,
+        price,
+        value: price * quantity,
+        type: isBuying ? 'buy' : 'sell',
+        timestamp: timestamp + trades.length * 400,
+      });
+    }
+
+    return trades;
+  }
+
   completeRound(room: RoomRecord, pendingTrades: TradeSummary[]): GameResult {
     const roundNumber = room.roundNumber;
     const tablePlayers: TablePlayer[] = room.players.map((player) => ({
@@ -49,7 +109,7 @@ export class GameEngine {
       throw error;
     }
 
-    const tradeData = this.prepareTrades(tablePlayers, pendingTrades);
+    const tradeData = this.prepareTrades(tablePlayers, pendingTrades, room.players);
     round.reveal();
     round.settle(tradeData.trades);
 
@@ -81,9 +141,14 @@ export class GameEngine {
     };
   }
 
-  private prepareTrades(players: TablePlayer[], pending: TradeSummary[]): { trades: Trade[]; summaries: TradeSummary[] } {
+  private prepareTrades(
+    players: TablePlayer[],
+    pending: TradeSummary[],
+    roomPlayers: RoomPlayer[],
+  ): { trades: Trade[]; summaries: TradeSummary[] } {
     const trades: Trade[] = [];
     const summaries: TradeSummary[] = [];
+    const nameMap = new Map(roomPlayers.map((p) => [p.id, p.name]));
 
     const addTrade = (summary: TradeSummary) => {
       const buyer = summary.type === 'buy' ? summary.playerId : summary.counterpartyId;
@@ -94,33 +159,15 @@ export class GameEngine {
         price: summary.price,
         quantity: summary.quantity,
       });
-      summaries.push(summary);
+      // Ensure names are resolved (not raw IDs)
+      summaries.push({
+        ...summary,
+        playerName: nameMap.get(summary.playerId) ?? summary.playerName,
+        counterpartyName: nameMap.get(summary.counterpartyId) ?? summary.counterpartyName,
+      });
     };
 
     pending.forEach(addTrade);
-
-    if (summaries.length < 3) {
-      const timestamp = Date.now();
-      const sampleCount = Math.min(players.length - 1, 3 - summaries.length);
-      for (let i = 0; i < sampleCount; i += 1) {
-        const seller = players[i];
-        const buyer = players[(i + 1) % players.length];
-        const price = 90 + Math.floor(Math.random() * 20);
-        const quantity = 1 + Math.floor(Math.random() * 2);
-        addTrade({
-          id: `sim-${timestamp}-${i}`,
-          playerId: buyer.id,
-          playerName: buyer.id,
-          counterpartyId: seller.id,
-          counterpartyName: seller.id,
-          quantity,
-          price,
-          value: price * quantity,
-          type: 'buy',
-          timestamp: timestamp + i * 500,
-        });
-      }
-    }
 
     return { trades, summaries };
   }
