@@ -160,6 +160,19 @@ router.post('/:roomId/trade', async (req: Request, res: Response) => {
   }
 });
 
+// Get available characters (static) — must be before /:roomId to avoid shadowing
+router.get('/characters', async (_req: Request, res: Response) => {
+  return res.status(200).json({
+    characters: [
+      { id: 'DEALER', name: 'The Dealer', description: 'Professional and neutral', voiceId: 'EXAVITQu4vr4xnSDxMaL' },
+      { id: 'BULL', name: 'Bull Runner', description: 'Optimistic trader', voiceId: '21m00Tcm4TlvDq8ikWAM' },
+      { id: 'BEAR', name: 'Bear Necessities', description: 'Pessimistic analyst', voiceId: 'AZnzlk1XvdvUeBnXmlld' },
+      { id: 'WHALE', name: 'The Whale', description: 'Big player', voiceId: 'pNInz6obpgDQGcFmaJgB' },
+      { id: 'ROOKIE', name: 'Fresh Trader', description: 'Enthusiastic beginner', voiceId: 'yoZ06aMxZJJ28mfd3POQ' },
+    ]
+  });
+});
+
 // Get room details
 router.get('/:roomId', async (req: Request, res: Response) => {
   const roomId = normalizeRoomId(req.params.roomId);
@@ -189,44 +202,6 @@ router.post('/:roomId/start', async (req: Request, res: Response) => {
   } catch (error) {
     return handleRoomError(error, res);
   }
-});
-
-// Get available characters (static)
-router.get('/characters', async (_req: Request, res: Response) => {
-  return res.status(200).json({
-    characters: [
-      {
-        id: 'DEALER',
-        name: 'The Dealer',
-        description: 'Professional and neutral',
-        voiceId: 'EXAVITQu4vr4xnSDxMaL'
-      },
-      {
-        id: 'BULL',
-        name: 'Bull Runner',
-        description: 'Optimistic trader',
-        voiceId: '21m00Tcm4TlvDq8ikWAM'
-      },
-      {
-        id: 'BEAR',
-        name: 'Bear Necessities',
-        description: 'Pessimistic analyst',
-        voiceId: 'AZnzlk1XvdvUeBnXmlld'
-      },
-      {
-        id: 'WHALE',
-        name: 'The Whale',
-        description: 'Big player',
-        voiceId: 'pNInz6obpgDQGcFmaJgB'
-      },
-      {
-        id: 'ROOKIE',
-        name: 'Fresh Trader',
-        description: 'Enthusiastic beginner',
-        voiceId: 'yoZ06aMxZJJ28mfd3POQ'
-      }
-    ]
-  });
 });
 
 export default router;

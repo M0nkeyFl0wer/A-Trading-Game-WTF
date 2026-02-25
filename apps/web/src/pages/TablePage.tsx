@@ -7,14 +7,11 @@ import SeatAvatars from '../ui/SeatAvatars';
 import GameRulesPanel from '../ui/GameRulesPanel';
 import ConnectWalletButton from '../ui/ConnectWalletButton';
 import VoiceControls from '../ui/VoiceControls';
-import GameRulesPanel from '../ui/GameRulesPanel';
 import { useGameVoice } from '../hooks/useGameVoice';
 import { useBotAI } from '../hooks/useBotAI';
 import { useGameStore } from '../store';
 import { useRoomState } from '../hooks/useRoomState';
 import { useAuth } from '../contexts/AuthContext';
-
-const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
 export default function TablePage() {
   const { id } = useParams<{ id: string }>();
@@ -30,9 +27,6 @@ export default function TablePage() {
   const [startingRound, setStartingRound] = useState(false);
   const { currentUser } = useAuth();
   const isHost = Boolean(currentUser && room?.hostId && currentUser.uid === room.hostId);
-  useBotAI(id);
-
-  // Auto-fill empty seats with bot opponents
   useBotAI(id);
 
   const { queueVoice, announceEvent, playCharacterReaction } = useGameVoice({
