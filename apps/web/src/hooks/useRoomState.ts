@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { io, type Socket } from 'socket.io-client';
 import { sanitizeInput } from '../lib/security';
 import { useAuth } from '../contexts/AuthContext';
+import { showToast } from '../ui/Toaster';
 import {
   useGameStore,
   type PlayerState,
@@ -143,9 +145,11 @@ const mapTradesToEvents = (trades: ServerTradeSummary[]): TradeEvent[] =>
 
 export function useRoomState(roomId?: string) {
   const { currentUser } = useAuth();
+  const navigate = useNavigate();
   const [room, setRoom] = useState<NormalizedRoom | null>(null);
   const [status, setStatus] = useState<HookStatus>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [connected, setConnected] = useState(true);
   const socketRef = useRef<Socket | null>(null);
   const setPlayers = useGameStore((state) => state.setPlayers);
   const setGamePhase = useGameStore((state) => state.setGamePhase);
@@ -232,8 +236,30 @@ export function useRoomState(roomId?: string) {
         const socket = io(socketUrl, {
           transports: ['websocket'],
           auth: { token },
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 2000,
         });
         socketRef.current = socket;
+
+        socket.on('connect', () => {
+          setConnected(true);
+          socket.emit('join-room', roomId);
+        });
+
+        socket.on('disconnect', () => {
+          setConnected(false);
+          showToast('Disconnected from server. Reconnecting...', 'error');
+        });
+
+        socket.io.on('reconnect', () => {
+          setConnected(true);
+          showToast('Reconnected to server', 'success');
+        });
+
+        socket.io.on('reconnect_failed', () => {
+          showToast('Unable to reconnect. Please refresh the page.', 'error');
+        });
 
         socket.on('rooms:update', (payload) => {
           if (payload?.id === roomId) {
@@ -243,14 +269,17 @@ export function useRoomState(roomId?: string) {
 
         socket.on('rooms:removed', (payload) => {
           if (payload?.id === roomId) {
+            showToast('Room closed. Returning to lobby...', 'info');
             setError('Room is no longer available');
             setStatus('error');
+            setTimeout(() => navigate('/'), 3000);
           }
         });
 
         socket.emit('join-room', roomId);
       } catch (err) {
-        console.warn('Lobby socket connection failed', err);
+        console.warn('Socket connection failed', err);
+        showToast('Unable to connect to game server', 'error');
       }
     };
 
@@ -264,7 +293,7 @@ export function useRoomState(roomId?: string) {
         socketRef.current = null;
       }
     };
-  }, [roomId, currentUser, updateRoomState]);
+  }, [roomId, currentUser, updateRoomState, navigate]);
 
-  return { room, status, error };
+  return { room, status, error, connected };
 }

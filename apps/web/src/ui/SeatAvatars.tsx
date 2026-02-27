@@ -37,7 +37,7 @@ export default function SeatAvatars() {
 
       <ul
         className="list-reset"
-        style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+        style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))' }}
       >
         {seats.map(player => (
           <li

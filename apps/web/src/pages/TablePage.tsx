@@ -15,7 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 export default function TablePage() {
   const { id } = useParams<{ id: string }>();
-  const { room, status: roomStatus, error: roomError } = useRoomState(id);
+  const { room, status: roomStatus, error: roomError, connected } = useRoomState(id);
   const voiceEnabled = useGameStore((state) => state.isVoiceEnabled);
   const selectedCharacter = useGameStore((state) => state.character);
   const roundNumber = useGameStore((state) => state.roundNumber);
@@ -122,6 +122,11 @@ export default function TablePage() {
 
   return (
     <main className="page" aria-labelledby="table-title">
+      {!connected && (
+        <div className="connection-banner" role="alert">
+          Connection lost. Reconnecting...
+        </div>
+      )}
       <header className="page__header">
         <div>
           <h1 id="table-title" className="page__title">🎲 {room?.name ?? `Table ${id}`}</h1>

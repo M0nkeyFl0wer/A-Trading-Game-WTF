@@ -6,6 +6,7 @@ import { useGameStore } from '../store';
 import CreateTableModal from '../ui/CreateTableModal';
 import { type CreateTableConfig } from '../ui/CreateTableModal';
 import ConnectWalletButton from '../ui/ConnectWalletButton';
+import SignInModal from '../ui/SignInModal';
 import VoiceControls from '../ui/VoiceControls';
 import CharacterGallery from '../ui/CharacterGallery';
 import { useLobbyTables } from '../hooks/useLobbyTables';
@@ -130,8 +131,9 @@ export default function LobbyPage() {
         </div>
         <div className="page__actions">
           <button type="button" className="button button--ghost" onClick={refresh} disabled={isLoading}>
-            🔄 Refresh
+            Refresh
           </button>
+          <SignInModal />
           <ConnectWalletButton />
         </div>
       </header>
