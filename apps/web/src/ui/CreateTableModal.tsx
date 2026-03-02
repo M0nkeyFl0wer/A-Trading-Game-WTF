@@ -108,10 +108,7 @@ export default function CreateTableModal({
   };
 
   const handleOpen = () => {
-    if (disabled) {
-      setFormMessage(disabledMessage ?? 'Sign in to launch a table.');
-      return;
-    }
+    if (disabled) return;
     setOpen(true);
   };
 

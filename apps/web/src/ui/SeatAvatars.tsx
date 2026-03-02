@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import { useGameStore } from '../store';
 import type { PlayerState } from '../store';
 
@@ -19,6 +19,25 @@ const characterEmoji: Record<PlayerState['character'], string> = {
 export default function SeatAvatars() {
   const players = useGameStore(state => state.players);
   const roundNumber = useGameStore(state => state.roundNumber);
+
+  const prevBalances = useRef<Map<string, number>>(new Map());
+  const [changedIds, setChangedIds] = useState<Map<string, 'up' | 'down'>>(new Map());
+
+  useEffect(() => {
+    const changes = new Map<string, 'up' | 'down'>();
+    for (const player of players) {
+      const prev = prevBalances.current.get(player.id);
+      if (prev !== undefined && prev !== player.balance) {
+        changes.set(player.id, player.balance > prev ? 'up' : 'down');
+      }
+      prevBalances.current.set(player.id, player.balance);
+    }
+    if (changes.size > 0) {
+      setChangedIds(changes);
+      const timer = setTimeout(() => setChangedIds(new Map()), 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [players]);
 
   const seats = useMemo(
     () => players.map(player => ({
@@ -58,8 +77,17 @@ export default function SeatAvatars() {
               <strong style={{ display: 'block' }}>
                 {player.name}
               </strong>
-              <small style={{ color: 'var(--text-secondary)' }}>
+              <small style={{
+                color: changedIds.get(player.id) === 'up'
+                  ? 'var(--success)'
+                  : changedIds.get(player.id) === 'down'
+                  ? 'var(--error)'
+                  : 'var(--text-secondary)',
+                transition: 'color 0.3s ease',
+              }}>
                 Balance {balanceFormatter.format(player.balance)}
+                {changedIds.get(player.id) === 'up' && ' ▲'}
+                {changedIds.get(player.id) === 'down' && ' ▼'}
               </small>
               {typeof player.cardValue === 'number' && (
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>

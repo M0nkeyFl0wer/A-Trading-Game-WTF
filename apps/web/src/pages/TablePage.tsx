@@ -13,6 +13,8 @@ import { useGameStore } from '../store';
 import { useRoomState } from '../hooks/useRoomState';
 import { useAuth } from '../contexts/AuthContext';
 
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+
 export default function TablePage() {
   const { id } = useParams<{ id: string }>();
   const { room, status: roomStatus, error: roomError, connected } = useRoomState(id);

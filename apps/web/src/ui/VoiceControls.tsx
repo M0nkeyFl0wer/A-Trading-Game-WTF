@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { voiceService, CHARACTER_PERSONALITIES, CHARACTER_VOICES } from '../lib/elevenlabs';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '../store';
+import { showToast } from './Toaster';
 
 interface VoiceControlsProps {
   onVoiceToggle?: (enabled: boolean) => void;
@@ -55,6 +56,7 @@ export default function VoiceControls({ onVoiceToggle, className = '' }: VoiceCo
       await voiceService.playCharacterCatchphrase(selectedCharacter);
     } catch (error) {
       console.error('Error playing character phrase:', error);
+      showToast('Voice unavailable — check your connection', 'error');
     } finally {
       setIsPlaying(false);
     }
@@ -68,6 +70,7 @@ export default function VoiceControls({ onVoiceToggle, className = '' }: VoiceCo
       await voiceService.announceGameEvent(event, 'Player 1', currentCharacter);
     } catch (error) {
       console.error('Error announcing game event:', error);
+      showToast('Voice unavailable — check your connection', 'error');
     } finally {
       setIsPlaying(false);
     }
@@ -87,7 +90,7 @@ export default function VoiceControls({ onVoiceToggle, className = '' }: VoiceCo
           padding: '20px',
           boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
           color: 'white',
-          minWidth: '320px',
+          minWidth: 'min(320px, 100%)',
         }}
       >
         {/* Header */}
