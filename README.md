@@ -7,9 +7,6 @@ A **voice-enabled**, **character-driven** trading game that brings markets to li
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4-blue.svg)](https://www.typescriptlang.org/)
 [![pnpm](https://img.shields.io/badge/pnpm-workspace-orange.svg)](https://pnpm.io/)
 
-## 🎮 Play Now
-
-**Development Server Running**: http://localhost:3001
 
 ## ✨ Features
 
