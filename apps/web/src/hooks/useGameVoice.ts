@@ -5,7 +5,7 @@ import {
   CHARACTER_VOICES,
 } from '../lib/elevenlabs';
 import type { VoiceStyle } from '@trading-game/shared';
-import { useStore } from '../store';
+import { useGameStore } from '../store';
 
 interface UseGameVoiceOptions {
   enabled?: boolean;
@@ -18,18 +18,17 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
   const previousStateRef = useRef<{
     gamePhase?: string;
     roundNumber?: number;
-    lastAction?: unknown;
+    tradeCount?: number;
   }>({});
   const voiceQueueRef = useRef<
     Array<{ text: string; character?: string; style?: VoiceStyle }>
   >([]);
   const isProcessingRef = useRef(false);
 
-  // Get game state from store (assuming you have these in your store)
-  const gamePhase = useStore((state: any) => state.gamePhase);
-  const roundNumber = useStore((state: any) => state.roundNumber);
-  const players = useStore((state: any) => state.players);
-  const lastAction = useStore((state: any) => state.lastAction);
+  const gamePhase = useGameStore((state) => state.gamePhase);
+  const roundNumber = useGameStore((state) => state.roundNumber);
+  const players = useGameStore((state) => state.players);
+  const trades = useGameStore((state) => state.trades);
 
   // Process voice queue
   const processVoiceQueue = useCallback(async () => {
@@ -56,7 +55,6 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
 
     isProcessingRef.current = false;
 
-    // Process next item in queue
     if (voiceQueueRef.current.length > 0) {
       setTimeout(() => processVoiceQueue(), 500);
     }
@@ -68,10 +66,7 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
 
     const selectedCharacter = characterOverride || character;
     const personality = CHARACTER_PERSONALITIES[selectedCharacter];
-    if (!personality) {
-      console.warn('Unknown character for voice playback', selectedCharacter);
-      return;
-    }
+    if (!personality) return;
 
     voiceQueueRef.current.push({
       text,
@@ -97,8 +92,10 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
   useEffect(() => {
     if (!enabled || !autoPlay) return;
 
-    // Check for game state changes
-    if (gamePhase !== previousStateRef.current.gamePhase) {
+    const prev = previousStateRef.current;
+
+    // Phase transitions
+    if (gamePhase !== prev.gamePhase) {
       switch (gamePhase) {
         case 'waiting':
           queueVoice("Waiting for players to join...");
@@ -107,49 +104,44 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
           queueVoice("Get ready! The game is about to begin!");
           break;
         case 'playing':
-          queueVoice("The trading floor is now open!");
+          queueVoice("The trading floor is now open! Post your quotes!");
           break;
         case 'finished': {
           const winner = players?.find((p: any) => p.isWinner);
           if (winner) {
-            queueVoice(`Congratulations ${winner.name}! You've conquered the market!`);
+            // Use the winner's character voice for the announcement
+            const winChar = winner.character as keyof typeof CHARACTER_PERSONALITIES;
+            if (winner.isBot && CHARACTER_PERSONALITIES[winChar]) {
+              queueVoice(
+                CHARACTER_PERSONALITIES[winChar].catchphrases[0],
+                winChar
+              );
+            }
+            queueVoice(`${winner.name} wins the round!`);
           } else {
-            queueVoice("Game over! Thanks for playing!");
+            queueVoice("Round complete! Results are in.");
           }
           break;
         }
         case 'revealing':
-          queueVoice("Reveal time! Let's see those cards!");
+          queueVoice("Cards revealed! Let's see who traded best.");
           break;
       }
     }
 
-    // Check for round changes
-    if (roundNumber !== previousStateRef.current.roundNumber && roundNumber) {
-      queueVoice(`Round ${roundNumber} begins now! Check your cards!`);
+    // Round changes
+    if (roundNumber !== prev.roundNumber && roundNumber && roundNumber > 1) {
+      queueVoice(`Round ${roundNumber}. New cards, new trades!`);
     }
 
-    // Check for player actions
-    if (lastAction !== previousStateRef.current.lastAction && lastAction) {
-      switch (lastAction.type) {
-        case 'trade':
-          queueVoice(`${lastAction.player} places a ${lastAction.value} share trade!`);
-          break;
-        case 'fold':
-          queueVoice(`${lastAction.player} folds!`);
-          break;
-        case 'reveal':
-          queueVoice("Revealing the market value!");
-          break;
-        case 'win_round':
-          queueVoice(
-            `${lastAction.player} wins the round${
-              typeof lastAction.value === 'number'
-                ? ` with ${lastAction.value} points!`
-                : '!'
-            }`
-          );
-          break;
+    // New trades (announce only the latest one to avoid spam)
+    const currentTradeCount = trades?.length ?? 0;
+    const prevTradeCount = prev.tradeCount ?? 0;
+    if (currentTradeCount > prevTradeCount && currentTradeCount > 0) {
+      const latestTrade = trades[trades.length - 1];
+      if (latestTrade) {
+        const tradeDesc = `${latestTrade.player} ${latestTrade.type === 'buy' ? 'buys' : 'sells'} ${latestTrade.quantity} at ${latestTrade.price}`;
+        queueVoice(tradeDesc);
       }
     }
 
@@ -157,9 +149,9 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
     previousStateRef.current = {
       gamePhase,
       roundNumber,
-      lastAction,
+      tradeCount: currentTradeCount,
     };
-  }, [gamePhase, roundNumber, lastAction, enabled, autoPlay, queueVoice, players]);
+  }, [gamePhase, roundNumber, trades, enabled, autoPlay, queueVoice, players]);
 
   // Character-specific reactions
   const playCharacterReaction = useCallback(async (situation: string) => {
@@ -167,25 +159,25 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
 
     const reactions: Record<string, Record<keyof typeof CHARACTER_PERSONALITIES, string[]>> = {
       'big_win': {
-        DEALER: ["Impressive play!", "Well calculated!", "The house acknowledges your skill!"],
-        BULL: ["To the moon baby!", "That's how you do it!", "Diamond hands win!"],
-        BEAR: ["Lucky this time...", "The market will correct...", "Don't get too confident..."],
-        WHALE: ["As expected from a fellow whale", "The big money always wins", "Small fish, take notes"],
-        ROOKIE: ["Wow! How did you do that?", "I'm taking notes!", "Teach me your ways!"],
+        DEALER: ["Impressive play!", "Well calculated!"],
+        BULL: ["To the moon baby!", "That's how you do it!"],
+        BEAR: ["Lucky this time...", "The market will correct..."],
+        WHALE: ["As expected from a fellow whale", "The big money wins"],
+        ROOKIE: ["Wow! How did you do that?", "I'm taking notes!"],
       },
       'big_loss': {
-        DEALER: ["The market can be cruel", "Better luck next round", "Risk and reward..."],
-        BULL: ["Just a dip, we'll recover!", "HODL!", "Buy the dip!"],
-        BEAR: ["I warned you!", "The bubble burst!", "Should have shorted!"],
-        WHALE: ["Pocket change...", "The ocean is vast...", "A minor setback..."],
-        ROOKIE: ["Oh no, my savings!", "I don't understand!", "Is this normal?"],
+        DEALER: ["The market can be cruel", "Better luck next round"],
+        BULL: ["Just a dip, we'll recover!", "Buy the dip!"],
+        BEAR: ["I warned you!", "Should have shorted!"],
+        WHALE: ["Pocket change...", "A minor setback..."],
+        ROOKIE: ["Oh no, my savings!", "Is this normal?"],
       },
       'close_call': {
-        DEALER: ["That was close!", "By a hair's breadth!", "Tension on the trading floor!"],
-        BULL: ["Almost there!", "So close to the moon!", "Next time for sure!"],
-        BEAR: ["Too close for comfort", "The edge of disaster", "Narrowly avoided"],
-        WHALE: ["Calculated risk", "Precisely as planned", "The margin was acceptable"],
-        ROOKIE: ["My heart is racing!", "I can't take this stress!", "Was that good or bad?"],
+        DEALER: ["That was close!", "Tension on the trading floor!"],
+        BULL: ["Almost there!", "So close!"],
+        BEAR: ["Too close for comfort", "Narrowly avoided"],
+        WHALE: ["Calculated risk", "The margin was acceptable"],
+        ROOKIE: ["My heart is racing!", "Was that good or bad?"],
       },
     };
 
@@ -196,15 +188,10 @@ export function useGameVoice(options: UseGameVoiceOptions = {}) {
     }
   }, [enabled, character, queueVoice]);
 
-  // Expose methods for manual control
   return {
     queueVoice,
     announceEvent,
     playCharacterReaction,
     stopVoice: () => voiceService.stopSpeech(),
-    setCharacter: (newCharacter: keyof typeof CHARACTER_PERSONALITIES) => {
-      // This would typically update state, but for now just use in next call
-      console.log('Character switched to:', newCharacter);
-    },
   };
 }

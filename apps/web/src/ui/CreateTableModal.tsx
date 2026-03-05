@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { useEffect, useRef, useState } from 'react';
 import { sanitizeInput } from '../lib/security';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
@@ -69,20 +68,6 @@ export default function CreateTableModal({
     }
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open]);
-
   const closeModal = () => {
     setOpen(false);
     setFormMessage(null);
@@ -123,10 +108,7 @@ export default function CreateTableModal({
   };
 
   const handleOpen = () => {
-    if (disabled) {
-      setFormMessage(disabledMessage ?? 'Sign in to launch a table.');
-      return;
-    }
+    if (disabled) return;
     setOpen(true);
   };
 

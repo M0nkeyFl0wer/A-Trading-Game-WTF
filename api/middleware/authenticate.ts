@@ -2,7 +2,8 @@ import type { Request, Response, NextFunction } from 'express';
 import type { DecodedIdToken } from 'firebase-admin/auth';
 import { getAuthInstance, isFirebaseConfigured } from '../lib/firebaseAdmin';
 
-const devBypassEnabled = process.env.AUTH_DEV_BYPASS === 'true';
+const devBypassEnabled =
+  process.env.AUTH_DEV_BYPASS === 'true' && process.env.NODE_ENV !== 'production';
 const devBypassUserId = process.env.AUTH_DEV_USER_ID || 'dev-user';
 const devBypassUserEmail = process.env.AUTH_DEV_USER_EMAIL || 'dev@example.com';
 

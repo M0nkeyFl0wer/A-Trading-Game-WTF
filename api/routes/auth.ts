@@ -1,153 +1,89 @@
 import { Router, Request, Response } from 'express';
 import { validateInput, validationSchemas, sanitizeInput } from '@trading-game/shared';
 import { authLimiter, passwordResetLimiter } from '../middleware/rateLimiting';
+import { getAuthInstance } from '../lib/firebaseAdmin';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
-/**
- * Authentication routes with security
- */
-
-// Login endpoint
 router.post('/login', authLimiter, async (req: Request, res: Response) => {
   try {
-    const { username, password } = req.body;
-
-    // Validate input
-    const usernameValidation = validateInput(username, validationSchemas.username);
-    if (!usernameValidation.isValid) {
-      return res.status(400).json({
-        error: 'Invalid input',
-        message: usernameValidation.error
-      });
+    const { idToken } = req.body;
+    if (!idToken || typeof idToken !== 'string') {
+      return res.status(400).json({ error: 'Missing idToken', message: 'Provide a Firebase ID token' });
     }
-
-    // Sanitize input
-    const sanitizedUsername = sanitizeInput(username);
-
-    // TODO: Implement actual authentication with Firebase
-    // For now, return mock response
-    if (sanitizedUsername === 'testuser' && password === 'testpass') {
-      return res.status(200).json({
-        success: true,
-        user: {
-          id: '123',
-          username: sanitizedUsername,
-          token: 'mock-jwt-token'
-        }
-      });
+    const auth = getAuthInstance();
+    if (!auth) {
+      return res.status(503).json({ error: 'AuthUnavailable', message: 'Firebase Admin is not configured' });
     }
-
-    return res.status(401).json({
-      error: 'Authentication failed',
-      message: 'Invalid username or password'
+    const decoded = await auth.verifyIdToken(idToken);
+    return res.status(200).json({
+      success: true,
+      user: { id: decoded.uid, email: decoded.email ?? null, name: decoded.name ?? decoded.email ?? 'Trader' },
     });
   } catch (error) {
-    console.error('Login error:', error);
-    return res.status(500).json({
-      error: 'Internal server error',
-      message: 'An error occurred during login'
-    });
+    logger.error({ err: error }, 'Login verification failed');
+    return res.status(401).json({ error: 'Authentication failed', message: 'Invalid or expired token' });
   }
 });
 
-// Signup endpoint
 router.post('/signup', authLimiter, async (req: Request, res: Response) => {
   try {
-    const { username, email, password } = req.body;
-
-    // Validate inputs
-    const usernameValidation = validateInput(username, validationSchemas.username);
-    const emailValidation = validateInput(email, validationSchemas.email);
-
-    if (!usernameValidation.isValid || !emailValidation.isValid) {
-      return res.status(400).json({
-        error: 'Invalid input',
-        message: usernameValidation.error || emailValidation.error
-      });
+    const { idToken, username } = req.body;
+    if (!idToken || typeof idToken !== 'string') {
+      return res.status(400).json({ error: 'Missing idToken', message: 'Provide a Firebase ID token' });
     }
-
-    // TODO: Implement actual user creation with Firebase
+    if (username) {
+      const v = validateInput(username, validationSchemas.username);
+      if (!v.isValid) return res.status(400).json({ error: 'Invalid username', message: v.error });
+    }
+    const auth = getAuthInstance();
+    if (!auth) return res.status(503).json({ error: 'AuthUnavailable', message: 'Firebase Admin not configured' });
+    const decoded = await auth.verifyIdToken(idToken);
+    const sanitizedUsername = username ? sanitizeInput(username) : undefined;
+    if (sanitizedUsername) await auth.updateUser(decoded.uid, { displayName: sanitizedUsername });
     return res.status(201).json({
       success: true,
-      user: {
-        id: Date.now().toString(),
-        username: sanitizeInput(username),
-        email: sanitizeInput(email)
-      }
+      user: { id: decoded.uid, email: decoded.email ?? null, username: sanitizedUsername ?? decoded.name ?? decoded.email },
     });
   } catch (error) {
-    console.error('Signup error:', error);
-    return res.status(500).json({
-      error: 'Internal server error',
-      message: 'An error occurred during signup'
-    });
+    logger.error({ err: error }, 'Signup verification failed');
+    return res.status(500).json({ error: 'Internal server error', message: 'An error occurred during signup' });
   }
 });
 
-// Password reset endpoint
 router.post('/reset', passwordResetLimiter, async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
-
-    const emailValidation = validateInput(email, validationSchemas.email);
-    if (!emailValidation.isValid) {
-      return res.status(400).json({
-        error: 'Invalid input',
-        message: emailValidation.error
-      });
-    }
-
-    // TODO: Implement password reset with Firebase
-    return res.status(200).json({
-      success: true,
-      message: 'Password reset email sent'
-    });
-  } catch (error) {
-    console.error('Password reset error:', error);
-    return res.status(500).json({
-      error: 'Internal server error',
-      message: 'An error occurred during password reset'
-    });
+    const v = validateInput(email, validationSchemas.email);
+    if (!v.isValid) return res.status(400).json({ error: 'Invalid input', message: v.error });
+    const auth = getAuthInstance();
+    if (auth) await auth.generatePasswordResetLink(sanitizeInput(email));
+    return res.status(200).json({ success: true, message: 'If an account exists, a reset link has been sent' });
+  } catch {
+    return res.status(200).json({ success: true, message: 'If an account exists, a reset link has been sent' });
   }
 });
 
-// Logout endpoint
-router.post('/logout', async (req: Request, res: Response) => {
-  // TODO: Implement token invalidation
-  return res.status(200).json({
-    success: true,
-    message: 'Logged out successfully'
-  });
+router.post('/logout', async (_req: Request, res: Response) => {
+  return res.status(200).json({ success: true, message: 'Logged out successfully' });
 });
 
-// Verify token endpoint
 router.get('/verify', async (req: Request, res: Response) => {
   const token = req.headers.authorization?.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({
-      error: 'No token provided',
-      message: 'Authorization header required'
-    });
+  if (!token) return res.status(401).json({ error: 'No token provided' });
+  const auth = getAuthInstance();
+  if (!auth) return res.status(503).json({ error: 'AuthUnavailable' });
+  try {
+    const decoded = await auth.verifyIdToken(token);
+    return res.status(200).json({ valid: true, user: { id: decoded.uid, email: decoded.email ?? null, name: decoded.name ?? decoded.email ?? 'Trader' } });
+  } catch {
+    return res.status(401).json({ valid: false, error: 'Invalid or expired token' });
   }
-
-  // TODO: Implement JWT verification
-  return res.status(200).json({
-    valid: true,
-    user: {
-      id: '123',
-      username: 'testuser'
-    }
-  });
 });
 
-// Method not allowed for GET on login
-router.get('/login', (req: Request, res: Response) => {
-  res.status(405).json({
-    error: 'Method not allowed',
-    message: 'Use POST for login'
-  });
+router.get('/login', (_req: Request, res: Response) => {
+  res.status(405).json({ error: 'Method not allowed', message: 'Use POST for login' });
 });
 
 export default router;

@@ -90,7 +90,7 @@ router.post('/create', async (req: Request, res: Response) => {
   }
 });
 
-// Join a room
+// Join a room (supports adding bots when botId/botName/botCharacter provided)
 router.post('/join/:roomId', async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -100,6 +100,21 @@ router.post('/join/:roomId', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Room ID is required' });
   }
   try {
+    const { botId, botName, botCharacter } = req.body ?? {};
+    if (botId && botName) {
+      // Verify requester is already seated in the room
+      const existing = await roomService.getRoom(roomId);
+      if (!existing.players.find((p) => p.id === req.user!.id)) {
+        return res.status(403).json({ error: 'You must be in the room to add bots' });
+      }
+      const room = await roomService.joinRoom(roomId, {
+        id: sanitizeInput(String(botId)).slice(0, 32),
+        name: sanitizeInput(String(botName)).slice(0, 32) || 'Bot',
+        isBot: true,
+        character: botCharacter ? sanitizeInput(String(botCharacter)).slice(0, 16) : undefined,
+      });
+      return res.status(200).json({ success: true, room });
+    }
     const room = await roomService.joinRoom(roomId, {
       id: req.user.id,
       name: getDisplayName(req),
@@ -145,6 +160,19 @@ router.post('/:roomId/trade', async (req: Request, res: Response) => {
   }
 });
 
+// Get available characters (static) — must be before /:roomId to avoid shadowing
+router.get('/characters', async (_req: Request, res: Response) => {
+  return res.status(200).json({
+    characters: [
+      { id: 'DEALER', name: 'The Dealer', description: 'Professional and neutral', voiceId: 'EXAVITQu4vr4xnSDxMaL' },
+      { id: 'BULL', name: 'Bull Runner', description: 'Optimistic trader', voiceId: '21m00Tcm4TlvDq8ikWAM' },
+      { id: 'BEAR', name: 'Bear Necessities', description: 'Pessimistic analyst', voiceId: 'AZnzlk1XvdvUeBnXmlld' },
+      { id: 'WHALE', name: 'The Whale', description: 'Big player', voiceId: 'pNInz6obpgDQGcFmaJgB' },
+      { id: 'ROOKIE', name: 'Fresh Trader', description: 'Enthusiastic beginner', voiceId: 'yoZ06aMxZJJ28mfd3POQ' },
+    ]
+  });
+});
+
 // Get room details
 router.get('/:roomId', async (req: Request, res: Response) => {
   const roomId = normalizeRoomId(req.params.roomId);
@@ -174,44 +202,6 @@ router.post('/:roomId/start', async (req: Request, res: Response) => {
   } catch (error) {
     return handleRoomError(error, res);
   }
-});
-
-// Get available characters (static)
-router.get('/characters', async (_req: Request, res: Response) => {
-  return res.status(200).json({
-    characters: [
-      {
-        id: 'DEALER',
-        name: 'The Dealer',
-        description: 'Professional and neutral',
-        voiceId: 'EXAVITQu4vr4xnSDxMaL'
-      },
-      {
-        id: 'BULL',
-        name: 'Bull Runner',
-        description: 'Optimistic trader',
-        voiceId: '21m00Tcm4TlvDq8ikWAM'
-      },
-      {
-        id: 'BEAR',
-        name: 'Bear Necessities',
-        description: 'Pessimistic analyst',
-        voiceId: 'AZnzlk1XvdvUeBnXmlld'
-      },
-      {
-        id: 'WHALE',
-        name: 'The Whale',
-        description: 'Big player',
-        voiceId: 'pNInz6obpgDQGcFmaJgB'
-      },
-      {
-        id: 'ROOKIE',
-        name: 'Fresh Trader',
-        description: 'Enthusiastic beginner',
-        voiceId: 'yoZ06aMxZJJ28mfd3POQ'
-      }
-    ]
-  });
 });
 
 export default router;

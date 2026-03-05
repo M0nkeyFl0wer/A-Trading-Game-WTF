@@ -112,10 +112,13 @@ export default function CharacterGallery({
           const isHovered = hoveredCharacter === character;
 
           return (
-            <motion.div
+            <motion.button
+              type="button"
               key={character}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              aria-label={`Select ${personality.name}`}
+              aria-pressed={isSelected}
               style={{
                 position: 'relative',
                 cursor: 'pointer',
@@ -128,10 +131,15 @@ export default function CharacterGallery({
                   ? '3px solid white'
                   : '3px solid transparent',
                 transition: 'all 0.3s',
+                color: 'inherit',
+                font: 'inherit',
+                textAlign: 'left' as const,
               }}
               onClick={() => handleCharacterClick(character)}
               onMouseEnter={() => handleCharacterHover(character)}
               onMouseLeave={() => handleCharacterHover(null)}
+              onFocus={() => handleCharacterHover(character)}
+              onBlur={() => handleCharacterHover(null)}
             >
               <CharacterAvatar
                 character={character}
@@ -202,7 +210,7 @@ export default function CharacterGallery({
                   ✓
                 </motion.div>
               )}
-            </motion.div>
+            </motion.button>
           );
         })}
       </div>

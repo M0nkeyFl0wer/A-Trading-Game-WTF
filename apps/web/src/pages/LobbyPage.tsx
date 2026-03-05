@@ -1,12 +1,12 @@
-import { useEffect } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import type { MouseEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { voiceService } from '../lib/elevenlabs';
 import { useGameStore } from '../store';
 import CreateTableModal from '../ui/CreateTableModal';
 import { type CreateTableConfig } from '../ui/CreateTableModal';
 import ConnectWalletButton from '../ui/ConnectWalletButton';
+import SignInModal from '../ui/SignInModal';
 import VoiceControls from '../ui/VoiceControls';
 import CharacterGallery from '../ui/CharacterGallery';
 import { useLobbyTables } from '../hooks/useLobbyTables';
@@ -22,6 +22,7 @@ export default function LobbyPage() {
   const { currentUser } = useAuth();
   const isAuthenticated = Boolean(currentUser);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [joiningTableId, setJoiningTableId] = useState<string | null>(null);
   const combinedError = actionError || error;
   const navigate = useNavigate();
 
@@ -81,6 +82,7 @@ export default function LobbyPage() {
     event?.preventDefault();
     try {
       setActionError(null);
+      setJoiningTableId(table.id);
       setGamePhase('starting');
       const token = await requireAuthToken('join a table');
       const response = await fetch(`/api/room/join/${table.id}`, {
@@ -107,6 +109,7 @@ export default function LobbyPage() {
       setActionError(message);
       console.error('Join table failed', err);
       setGamePhase('idle');
+      setJoiningTableId(null);
     }
   }, [navigate, refresh, requireAuthToken, setGamePhase, voiceEnabled]);
 
@@ -130,12 +133,10 @@ export default function LobbyPage() {
           )}
         </div>
         <div className="page__actions">
-          <Link to="/payments" className="button button--neutral">
-            💰 Payments
-          </Link>
           <button type="button" className="button button--ghost" onClick={refresh} disabled={isLoading}>
-            🔄 Refresh
+            Refresh
           </button>
+          <SignInModal />
           <ConnectWalletButton />
         </div>
       </header>
@@ -242,11 +243,11 @@ export default function LobbyPage() {
                       className="button button--primary"
                       onClick={(event) => handleTableJoin(table, event)}
                       aria-label={`Join ${table.name}`}
-                      disabled={!isAuthenticated}
-                      aria-disabled={!isAuthenticated}
+                      disabled={!isAuthenticated || joiningTableId === table.id}
+                      aria-disabled={!isAuthenticated || joiningTableId === table.id}
                       title={!isAuthenticated ? 'Sign in to join tables' : undefined}
                     >
-                      Join table
+                      {joiningTableId === table.id ? 'Joining…' : 'Join table'}
                     </button>
                   </div>
                 </li>

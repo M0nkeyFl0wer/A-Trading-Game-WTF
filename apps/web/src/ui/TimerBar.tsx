@@ -50,7 +50,7 @@ export default function TimerBar({ seconds, label = 'Round timer', isPaused = fa
         />
       </div>
       <div style={{ marginTop: 8, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-        {isPaused ? 'Paused' : `${remaining}s remaining`}
+        {isPaused ? 'Paused' : remaining === 0 ? "Time's up! Settling..." : `${remaining}s remaining`}
       </div>
     </div>
   );

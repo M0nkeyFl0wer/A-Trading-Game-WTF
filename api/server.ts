@@ -87,13 +87,29 @@ app.use('/api/room', authenticateRequest, roomRoutes);
 app.use('/api/user', authenticateRequest, userRoutes);
 app.use('/api/voice', authenticateRequest, voiceRoutes);
 
+// Simple per-socket rate limiter for events
+const socketEventCounters = new Map<string, { count: number; resetAt: number }>();
+const SOCKET_RATE_LIMIT = 30; // max events per window
+const SOCKET_RATE_WINDOW_MS = 10_000; // 10 seconds
+
+function checkSocketRate(socketId: string): boolean {
+  const now = Date.now();
+  let entry = socketEventCounters.get(socketId);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + SOCKET_RATE_WINDOW_MS };
+    socketEventCounters.set(socketId, entry);
+  }
+  entry.count++;
+  return entry.count <= SOCKET_RATE_LIMIT;
+}
+
 io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
     const auth = getAuthInstance();
 
     if (!auth) {
-      if (process.env.AUTH_DEV_BYPASS === 'true') {
+      if (process.env.AUTH_DEV_BYPASS === 'true' && process.env.NODE_ENV !== 'production') {
         socket.data.user = { id: 'dev-user' };
         return next();
       }
@@ -117,36 +133,56 @@ io.use(async (socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  logger.info({ socketId: socket.id }, 'socket connected');
+  logger.info({ socketId: socket.id, userId: socket.data.user?.id }, 'socket connected');
 
   socket.on('join-room', (roomId: string) => {
+    if (typeof roomId !== 'string' || roomId.length > 64) return;
     socket.join(roomId);
     logger.info({ socketId: socket.id, roomId }, 'socket joined room');
   });
 
   socket.on('leave-room', (roomId: string) => {
+    if (typeof roomId !== 'string') return;
     socket.leave(roomId);
     logger.info({ socketId: socket.id, roomId }, 'socket left room');
   });
 
-  socket.on('trade', (data) => {
-    const roomId = data.roomId;
-    if (roomId) {
-      io.to(roomId).emit('trade-update', data);
+  // Route trade events through roomService instead of broadcasting raw data
+  socket.on('trade', async (data) => {
+    if (!checkSocketRate(socket.id)) return;
+    const roomId = typeof data?.roomId === 'string' ? data.roomId : null;
+    const userId = socket.data.user?.id;
+    if (!roomId || !userId) return;
+
+    try {
+      const price = Number(data.price);
+      const quantity = Math.max(1, Math.floor(Number(data.quantity) || 1));
+      const side = data.side === 'sell' ? 'sell' : 'buy';
+
+      if (!Number.isFinite(price) || price <= 0) return;
+
+      const { roomService } = await import('./services/roomService');
+      await roomService.submitTrade(roomId, userId, { price, quantity, side });
+      // roomService emits 'room:updated' which broadcasts via roomEvents below
+    } catch (err) {
+      logger.warn({ err, socketId: socket.id, roomId }, 'socket trade rejected');
     }
   });
 
   socket.on('message', (data) => {
-    const roomId = data.roomId;
-    if (roomId) {
-      io.to(roomId).emit('new-message', {
-        ...data,
-        timestamp: Date.now()
-      });
-    }
+    if (!checkSocketRate(socket.id)) return;
+    const roomId = typeof data?.roomId === 'string' ? data.roomId : null;
+    if (!roomId) return;
+    const text = typeof data?.text === 'string' ? data.text.slice(0, 500) : '';
+    io.to(roomId).emit('new-message', {
+      userId: socket.data.user?.id,
+      text,
+      timestamp: Date.now(),
+    });
   });
 
   socket.on('disconnect', () => {
+    socketEventCounters.delete(socket.id);
     logger.info({ socketId: socket.id }, 'socket disconnected');
   });
 });

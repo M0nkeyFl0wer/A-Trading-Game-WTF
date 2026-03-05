@@ -167,13 +167,20 @@ a:focus-visible {
 
 .button {
   border-radius: 999px;
-  padding: 10px 20px;
+  padding: 12px 20px;
+  min-height: 44px;
   border: 1px solid transparent;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   transition: background var(--transition-default), transform var(--transition-default), border-color var(--transition-default);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .button--primary {
@@ -401,4 +408,58 @@ a:focus-visible {
   inset: 0;
   border-radius: inherit;
   background: linear-gradient(135deg, #22d3ee, #6366f1);
+}
+
+/* Connectivity banner */
+.connection-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9998;
+  padding: 8px 16px;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.9);
+  color: white;
+  backdrop-filter: blur(8px);
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .card--interactive:hover {
+    transform: none;
+  }
+
+  .button--primary:hover {
+    transform: none;
+  }
+}
+
+/* Mobile refinements */
+@media (max-width: 480px) {
+  .page {
+    width: calc(100% - 24px);
+    padding: 16px 0 40px;
+    gap: 16px;
+  }
+
+  .page__title {
+    font-size: 1.6rem;
+  }
+
+  .modal-content {
+    padding: 16px;
+  }
+
+  .card {
+    padding: 16px;
+  }
 }

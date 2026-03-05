@@ -33,7 +33,6 @@ export default function QuoteModal({ className = '', roomId, disabled }: QuoteMo
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const recordTrade = useGameStore(state => state.recordTrade);
   const voiceEnabled = useGameStore(state => state.isVoiceEnabled);
   const character = useGameStore(state => state.character);
   const { currentUser } = useAuth();
@@ -84,23 +83,9 @@ export default function QuoteModal({ className = '', roomId, disabled }: QuoteMo
       }, 800);
     };
 
-    const fallback = () => {
-      recordTrade({
-        player: 'You',
-        counterparty: formState.oneWay ? 'Market Maker' : 'Crossed',
-        quantity,
-        price,
-        type: formState.oneWay ? 'sell' : 'buy',
-        value: price * quantity,
-        note: formState.oneWay ? 'One-way quote' : 'Two-sided quote',
-      });
-      announceSuccess();
-    };
-
     try {
       if (!roomId || !currentUser) {
-        fallback();
-        return;
+        throw new Error('You must be signed in and seated to trade');
       }
       const token = await currentUser.getIdToken();
       const response = await fetch(`${API_BASE}/api/room/${roomId}/trade`, {
@@ -119,11 +104,11 @@ export default function QuoteModal({ className = '', roomId, disabled }: QuoteMo
         const payload = await response.json().catch(() => ({}));
         throw new Error(payload?.error || 'Unable to post trade');
       }
+      // Trade will appear via socket broadcast — no local recording needed
       announceSuccess();
     } catch (err) {
       console.error('Trade submission failed', err);
       setError(err instanceof Error ? err.message : 'Unable to post trade');
-      fallback();
     } finally {
       setSubmitting(false);
     }
