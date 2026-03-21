@@ -176,6 +176,24 @@ router.post('/:roomId/start', async (req: Request, res: Response) => {
   }
 });
 
+// Add a bot player to the room (host only)
+router.post('/:roomId/add-bot', async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const roomId = normalizeRoomId(req.params.roomId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+  try {
+    const character = typeof req.body?.character === 'string' ? req.body.character : undefined;
+    const room = await roomService.addBot(roomId, req.user.id, character);
+    return res.status(200).json({ success: true, room });
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
+});
+
 // Get available characters (static)
 router.get('/characters', async (_req: Request, res: Response) => {
   return res.status(200).json({
