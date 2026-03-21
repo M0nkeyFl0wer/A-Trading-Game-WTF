@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onIdTokenChanged } from 'firebase/auth';
 import { sanitizeInput } from '../lib/security';
-import { auth } from '../lib/firebase';
+import { auth, isDevAuth } from '../lib/firebase';
 import { io, Socket } from 'socket.io-client';
 
 export type LobbyTablePhase = 'waiting' | 'playing' | 'finished';
@@ -135,6 +135,15 @@ export const useLobbyTables = () => {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+
+    // In dev auth mode, use a static token immediately.
+    if (isDevAuth) {
+      setAuthToken('dev-token');
+      return;
+    }
+
+    // Without Firebase auth instance, there's nothing to subscribe to.
+    if (!auth) return;
 
     const unsubscribe = onIdTokenChanged(auth, async (user) => {
       if (user) {
