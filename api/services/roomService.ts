@@ -345,22 +345,19 @@ export class RoomService {
   private prepareRound(room: RoomRecord): RoomRecord {
     const roundNumber = room.roundNumber + 1;
     const roundEndsAt = Date.now() + TRADING_WINDOW_MS;
-    return {
+    const prepared: RoomRecord = {
       ...room,
       status: 'playing',
       roundNumber,
       roundEndsAt,
       pendingTrades: [],
-      gameState: {
-        roundNumber,
-        phase: 'playing',
-        communityCards: [],
-        trades: [],
-        playerCards: [],
-        updatedAt: Date.now(),
-      },
       updatedAt: Date.now(),
     };
+
+    // Deal cards now so players see their hand during the trading window
+    const dealtState = gameEngine.dealRound(prepared);
+    prepared.gameState = dealtState;
+    return prepared;
   }
 
   private finalizeRound(room: RoomRecord): RoomRecord {

@@ -17,6 +17,18 @@ export class Round {
     this.deck = [...deck];
   }
 
+  /**
+   * Reconstruct a Round from cards that were already dealt.
+   * Players must already have their .card set. Community values are passed in.
+   * The returned Round is in 'trading' state, ready for reveal() then settle().
+   */
+  static fromDealt(table: Table, communityValues: number[], opts: RoundOptions = {}): Round {
+    const round = new Round(table, [], opts);
+    round.community = communityValues.map((v) => ({ value: v as DeckValue }));
+    round.state = 'trading';
+    return round;
+  }
+
   shuffle() {
     const d = this.deck;
     for (let i = d.length - 1; i > 0; i--) {
@@ -49,15 +61,25 @@ export class Round {
   settle(trades: Trade[]) {
     if (this.state !== 'reveal') throw new Error('invalid state');
     const communityTotal = this.community.reduce((a, c) => a + c.value, 0);
+    const numCommunity = this.community.length || 1;
+    // Settlement price is the average community card value -- this is the
+    // "true value" that gets revealed after trading ends.
+    const settlementPrice = communityTotal / numCommunity;
+
     const feeRate = this.opts.houseFee ?? 0.01;
     const tradeVolume: Record<string, number> = {};
-    const position: Record<string, number> = {};
+    const tradePnL: Record<string, number> = {};
 
+    // For each trade, the buyer gains (settlementPrice - tradePrice) * qty
+    // and the seller gains (tradePrice - settlementPrice) * qty.
     trades.forEach(t => {
-      tradeVolume[t.from] = (tradeVolume[t.from] || 0) + t.price * Math.abs(t.quantity);
-      tradeVolume[t.to] = (tradeVolume[t.to] || 0) + t.price * Math.abs(t.quantity);
-      position[t.from] = (position[t.from] || 0) - t.quantity;
-      position[t.to] = (position[t.to] || 0) + t.quantity;
+      const notional = t.price * Math.abs(t.quantity);
+      tradeVolume[t.from] = (tradeVolume[t.from] || 0) + notional;
+      tradeVolume[t.to] = (tradeVolume[t.to] || 0) + notional;
+
+      const mtm = (settlementPrice - t.price) * t.quantity;
+      tradePnL[t.to] = (tradePnL[t.to] || 0) + mtm;   // buyer
+      tradePnL[t.from] = (tradePnL[t.from] || 0) - mtm; // seller
     });
 
     const totalCardValue = this.table.players.reduce((acc, player) => acc + (player.card?.value ?? 0), 0);
@@ -65,8 +87,10 @@ export class Round {
 
     this.table.players.forEach(p => {
       const cardValue = p.card?.value ?? 0;
+      // Bonus/penalty for having a card above/below the table average
       const relativeCardPnL = cardValue - averageCardValue;
-      const positionPnL = position[p.id] || 0;
+      // Mark-to-market PnL from trades
+      const positionPnL = tradePnL[p.id] || 0;
       const feezableVolume = tradeVolume[p.id] || 0;
       const fees = feezableVolume * feeRate;
       const netResult = relativeCardPnL + positionPnL - fees;

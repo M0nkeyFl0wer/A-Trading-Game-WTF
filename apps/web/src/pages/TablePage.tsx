@@ -7,7 +7,7 @@ import SeatAvatars from '../ui/SeatAvatars';
 import ConnectWalletButton from '../ui/ConnectWalletButton';
 import VoiceControls from '../ui/VoiceControls';
 import { useGameVoice } from '../hooks/useGameVoice';
-import { useGameStore } from '../store';
+import { useGameStore, type PlayerState } from '../store';
 import { useRoomState } from '../hooks/useRoomState';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -21,12 +21,19 @@ export default function TablePage() {
   const roundNumber = useGameStore((state) => state.roundNumber);
   const gamePhase = useGameStore((state) => state.gamePhase);
   const trades = useGameStore((state) => state.trades);
+  const players = useGameStore((state) => state.players);
   const [timeLeft, setTimeLeft] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [startingRound, setStartingRound] = useState(false);
   const { currentUser } = useAuth();
   const isHost = Boolean(currentUser && room?.hostId && currentUser.uid === room.hostId);
+
+  // Find the current user's card value from the game state
+  const myCard: PlayerState | undefined = useMemo(
+    () => currentUser ? players.find((p) => p.id === currentUser.uid) : undefined,
+    [players, currentUser],
+  );
 
   const { queueVoice, announceEvent, playCharacterReaction } = useGameVoice({
     enabled: voiceEnabled,
@@ -161,6 +168,24 @@ export default function TablePage() {
             <p className="card__subtitle">
               House updates: {roundPhaseLabel}. Keep an eye on the clock and your opponents.
             </p>
+            {typeof myCard?.cardValue === 'number' && isTradingActive && (
+              <div
+                style={{
+                  margin: '12px 0',
+                  padding: '10px 16px',
+                  background: 'rgba(59,130,246,0.2)',
+                  border: '1px solid rgba(59,130,246,0.5)',
+                  borderRadius: 8,
+                  fontSize: '1.1rem',
+                  fontWeight: 600,
+                  textAlign: 'center',
+                }}
+                role="status"
+                aria-label={`Your card value is ${myCard.cardValue}`}
+              >
+                🃏 Your card: <span style={{ fontSize: '1.3rem' }}>{myCard.cardValue}</span>
+              </div>
+            )}
             <TimerBar seconds={timeLeft} label={isTradingActive ? 'Trading window' : 'Waiting for host'} />
           </section>
 
