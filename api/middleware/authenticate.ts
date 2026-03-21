@@ -57,6 +57,10 @@ export const authenticateRequest = async (
   }
 
   if (!token) {
+    if (devBypassEnabled) {
+      attachUserToRequest(req, null);
+      return next();
+    }
     return res.status(401).json({
       error: 'Unauthorized',
       message: 'Missing bearer token',
