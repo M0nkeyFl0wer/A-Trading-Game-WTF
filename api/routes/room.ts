@@ -74,109 +74,8 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
-// Create a new room (auth required via middleware)
-router.post('/create', async (req: Request, res: Response) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  try {
-    const name = parseRoomName(req.body?.name);
-    const maxPlayers = parseMaxPlayers(req.body?.maxPlayers);
-    const hostName = getDisplayName(req);
-    const room = await roomService.createRoom(name, maxPlayers, req.user.id, hostName);
-    return res.status(201).json({ success: true, room });
-  } catch (error) {
-    return handleRoomError(error, res);
-  }
-});
-
-// Join a room
-router.post('/join/:roomId', async (req: Request, res: Response) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  const roomId = normalizeRoomId(req.params.roomId);
-  if (!roomId) {
-    return res.status(400).json({ error: 'Room ID is required' });
-  }
-  try {
-    const room = await roomService.joinRoom(roomId, {
-      id: req.user.id,
-      name: getDisplayName(req),
-    });
-    return res.status(200).json({ success: true, room });
-  } catch (error) {
-    return handleRoomError(error, res);
-  }
-});
-
-// Leave a room
-router.post('/leave/:roomId', async (req: Request, res: Response) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  const roomId = normalizeRoomId(req.params.roomId);
-  if (!roomId) {
-    return res.status(400).json({ error: 'Room ID is required' });
-  }
-  try {
-    const room = await roomService.leaveRoom(roomId, req.user.id);
-    return res.status(200).json({ success: true, room });
-  } catch (error) {
-    return handleRoomError(error, res);
-  }
-});
-
-// Submit trade during active round
-router.post('/:roomId/trade', async (req: Request, res: Response) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  const roomId = normalizeRoomId(req.params.roomId);
-  if (!roomId) {
-    return res.status(400).json({ error: 'Room ID is required' });
-  }
-  try {
-    const trade = parseTradePayload(req.body);
-    const room = await roomService.submitTrade(roomId, req.user.id, trade);
-    return res.status(200).json({ success: true, room });
-  } catch (error) {
-    return handleRoomError(error, res);
-  }
-});
-
-// Get room details
-router.get('/:roomId', async (req: Request, res: Response) => {
-  const roomId = normalizeRoomId(req.params.roomId);
-  if (!roomId) {
-    return res.status(400).json({ error: 'Room ID is required' });
-  }
-  try {
-    const room = await roomService.getRoom(roomId);
-    return res.status(200).json(room);
-  } catch (error) {
-    return handleRoomError(error, res);
-  }
-});
-
-// Start game in room
-router.post('/:roomId/start', async (req: Request, res: Response) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  const roomId = normalizeRoomId(req.params.roomId);
-  if (!roomId) {
-    return res.status(400).json({ error: 'Room ID is required' });
-  }
-  try {
-    const room = await roomService.startRoom(roomId, req.user.id);
-    return res.status(200).json({ success: true, room });
-  } catch (error) {
-    return handleRoomError(error, res);
-  }
-});
-
-// Get available characters (static)
+// Get available characters (static) — must be above /:roomId to avoid
+// "characters" being captured as a room ID parameter.
 router.get('/characters', async (_req: Request, res: Response) => {
   return res.status(200).json({
     characters: [
@@ -212,6 +111,114 @@ router.get('/characters', async (_req: Request, res: Response) => {
       }
     ]
   });
+});
+
+// Create a new room (auth required via middleware)
+router.post('/create', async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const name = parseRoomName(req.body?.name);
+    const maxPlayers = parseMaxPlayers(req.body?.maxPlayers);
+    const hostName = getDisplayName(req);
+    const room = await roomService.createRoom(name, maxPlayers, req.user.id, hostName);
+    return res.status(201).json({ success: true, room });
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
+});
+
+// Join a room — handler extracted so both URL shapes resolve identically.
+const handleJoinRoom = async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const roomId = normalizeRoomId(req.params.roomId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+  try {
+    const room = await roomService.joinRoom(roomId, {
+      id: req.user.id,
+      name: getDisplayName(req),
+    });
+    return res.status(200).json({ success: true, room });
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
+};
+
+router.post('/join/:roomId', handleJoinRoom);   // frontend pattern
+router.post('/:roomId/join', handleJoinRoom);    // RESTful alias
+
+// Leave a room — same dual-pattern approach.
+const handleLeaveRoom = async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const roomId = normalizeRoomId(req.params.roomId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+  try {
+    const room = await roomService.leaveRoom(roomId, req.user.id);
+    return res.status(200).json({ success: true, room });
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
+};
+
+router.post('/leave/:roomId', handleLeaveRoom);  // frontend pattern
+router.post('/:roomId/leave', handleLeaveRoom);  // RESTful alias
+
+// Submit trade during active round
+router.post('/:roomId/trade', async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const roomId = normalizeRoomId(req.params.roomId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+  try {
+    const trade = parseTradePayload(req.body);
+    const room = await roomService.submitTrade(roomId, req.user.id, trade);
+    return res.status(200).json({ success: true, room });
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
+});
+
+// Start game in room
+router.post('/:roomId/start', async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const roomId = normalizeRoomId(req.params.roomId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+  try {
+    const room = await roomService.startRoom(roomId, req.user.id);
+    return res.status(200).json({ success: true, room });
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
+});
+
+// Get room details — must be last to avoid capturing action segments as IDs.
+router.get('/:roomId', async (req: Request, res: Response) => {
+  const roomId = normalizeRoomId(req.params.roomId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+  try {
+    const room = await roomService.getRoom(roomId);
+    return res.status(200).json(room);
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
 });
 
 export default router;
