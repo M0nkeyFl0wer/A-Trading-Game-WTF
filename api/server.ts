@@ -8,7 +8,8 @@ import { getAuthInstance } from './lib/firebaseAdmin';
 import { roomEvents } from './lib/roomEvents';
 import { logger } from './lib/logger';
 import { metrics } from './lib/metrics';
-import { closeDatabase } from './services/database';
+import { getDatabase, closeDatabase } from './services/database';
+import { botService } from './services/botService';
 
 import rootRoutes from './routes/index';
 import authRoutes from './routes/auth';
@@ -184,6 +185,8 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 process.on('SIGTERM', () => {
   logger.warn('SIGTERM signal received: closing HTTP server');
+  botService.shutdown();
+  closeDatabase();
   server.close(() => {
     closeDatabase();
     logger.info('HTTP server closed');
@@ -193,6 +196,8 @@ process.on('SIGTERM', () => {
 
 process.on('SIGINT', () => {
   logger.warn('SIGINT signal received: closing HTTP server');
+  botService.shutdown();
+  closeDatabase();
   server.close(() => {
     closeDatabase();
     logger.info('HTTP server closed');
@@ -204,6 +209,13 @@ const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 
 server.listen(PORT, () => {
+  // Initialize SQLite database (creates tables if needed)
+  try {
+    getDatabase();
+  } catch (err) {
+    logger.error({ err }, 'Failed to initialize SQLite database');
+  }
+
   logger.info({ host: HOST, port: PORT, environment: process.env.NODE_ENV || 'development' }, 'Server is running');
 });
 

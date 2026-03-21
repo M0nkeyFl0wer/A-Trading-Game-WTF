@@ -1,22 +1,22 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { logger } from '../lib/logger';
 
 const DB_DIR = path.join(__dirname, '..', 'data');
-const DB_PATH = path.join(DB_DIR, 'game.db');
+const DB_PATH = process.env.DB_PATH || path.join(DB_DIR, 'game.db');
 
 let db: Database.Database | null = null;
 
 export function getDatabase(): Database.Database {
-  if (db) {
-    return db;
+  if (db) return db;
+
+  const dir = path.dirname(DB_PATH);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
 
-  fs.mkdirSync(DB_DIR, { recursive: true });
-
   db = new Database(DB_PATH);
-
-  // WAL mode for concurrent read performance and crash resilience
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');
@@ -24,11 +24,14 @@ export function getDatabase(): Database.Database {
 
   createTables(db);
 
+  logger.info({ path: DB_PATH }, 'SQLite database initialized');
   return db;
 }
 
 function createTables(db: Database.Database): void {
   db.exec(`
+    -- Core game tables --------------------------------------------------
+
     CREATE TABLE IF NOT EXISTS rooms (
       id            TEXT PRIMARY KEY,
       name          TEXT NOT NULL,
@@ -86,11 +89,41 @@ function createTables(db: Database.Database): void {
       FOREIGN KEY (round_id) REFERENCES rounds(id) ON DELETE SET NULL
     );
 
+    -- Knowledge graph tables --------------------------------------------
+
+    CREATE TABLE IF NOT EXISTS kg_entities (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      name TEXT NOT NULL,
+      properties TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS kg_edges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_id TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      relation TEXT NOT NULL,
+      weight REAL NOT NULL DEFAULT 1.0,
+      properties TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (source_id) REFERENCES kg_entities(id) ON DELETE CASCADE,
+      FOREIGN KEY (target_id) REFERENCES kg_entities(id) ON DELETE CASCADE
+    );
+
+    -- Indexes -----------------------------------------------------------
+
     CREATE INDEX IF NOT EXISTS idx_players_room ON players(room_id);
     CREATE INDEX IF NOT EXISTS idx_rounds_room ON rounds(room_id);
     CREATE INDEX IF NOT EXISTS idx_trades_room ON trades(room_id);
     CREATE INDEX IF NOT EXISTS idx_trades_round ON trades(round_id);
     CREATE INDEX IF NOT EXISTS idx_rooms_status ON rooms(status);
+    CREATE INDEX IF NOT EXISTS idx_kg_entities_type ON kg_entities(type);
+    CREATE INDEX IF NOT EXISTS idx_kg_edges_source ON kg_edges(source_id);
+    CREATE INDEX IF NOT EXISTS idx_kg_edges_target ON kg_edges(target_id);
+    CREATE INDEX IF NOT EXISTS idx_kg_edges_relation ON kg_edges(relation);
+    CREATE INDEX IF NOT EXISTS idx_kg_edges_source_relation ON kg_edges(source_id, relation);
   `);
 }
 
@@ -98,5 +131,6 @@ export function closeDatabase(): void {
   if (db) {
     db.close();
     db = null;
+    logger.info('SQLite database closed');
   }
 }

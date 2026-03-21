@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { sanitizeInput } from '@trading-game/shared';
+import type { CharacterType } from '@trading-game/shared';
 import { roomService, RoomServiceError } from '../services/roomService';
+import { botService } from '../services/botService';
 
 const router: Router = Router();
 
@@ -139,6 +141,28 @@ router.post('/:roomId/trade', async (req: Request, res: Response) => {
   try {
     const trade = parseTradePayload(req.body);
     const room = await roomService.submitTrade(roomId, req.user.id, trade);
+    return res.status(200).json({ success: true, room });
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
+});
+
+// Add a bot player to the room (host only)
+router.post('/:roomId/add-bot', async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const roomId = normalizeRoomId(req.params.roomId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+  try {
+    const character = req.body?.character as CharacterType | undefined;
+    const validCharacters = ['DEALER', 'BULL', 'BEAR', 'WHALE', 'ROOKIE'];
+    const safeCharacter = character && validCharacters.includes(character)
+      ? character
+      : undefined;
+    const room = await botService.addBot(roomId, req.user.id, safeCharacter);
     return res.status(200).json({ success: true, room });
   } catch (error) {
     return handleRoomError(error, res);
