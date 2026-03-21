@@ -1,5 +1,5 @@
 import { Round, type Player as TablePlayer, type Trade } from '@trading-game/core';
-import { DEFAULT_DECK } from '@trading-game/shared';
+import { DEFAULT_DECK, type DeckValue } from '@trading-game/shared';
 import type { RoomPlayer, RoomRecord, RoomStatus } from './roomService';
 import { logger } from '../lib/logger';
 
@@ -21,7 +21,7 @@ export interface RoomGameState {
   phase: RoomStatus;
   communityCards: number[];
   trades: TradeSummary[];
-  playerCards: Array<{ id: string; value: number }>;
+  playerCards: Array<{ id: string; value: number; revealed: boolean }>;
   updatedAt: number;
 }
 
@@ -33,7 +33,11 @@ interface GameResult {
 }
 
 export class GameEngine {
-  completeRound(room: RoomRecord, pendingTrades: TradeSummary[]): GameResult {
+  /**
+   * Deal cards at round start so players can see their hand during trading.
+   * Returns a partial RoomGameState with playerCards (revealed: false) and communityCards.
+   */
+  dealRound(room: RoomRecord): RoomGameState {
     const roundNumber = room.roundNumber;
     const tablePlayers: TablePlayer[] = room.players.map((player) => ({
       id: player.id,
@@ -48,6 +52,52 @@ export class GameEngine {
       logger.error({ err: error, roomId: room.id }, 'failed to deal round');
       throw error;
     }
+
+    return {
+      roundNumber,
+      phase: 'playing',
+      communityCards: round.getCommunityCardValues(),
+      trades: [],
+      playerCards: tablePlayers.map((p) => ({
+        id: p.id,
+        value: p.card?.value ?? 0,
+        revealed: false,
+      })),
+      updatedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Settle the round using the cards that were already dealt at round start.
+   * The pre-dealt card values live in room.gameState.playerCards and communityCards.
+   */
+  completeRound(room: RoomRecord, pendingTrades: TradeSummary[]): GameResult {
+    const roundNumber = room.roundNumber;
+    const existingGameState = room.gameState;
+
+    // Build table players with the cards that were dealt at round start
+    const tablePlayers: TablePlayer[] = room.players.map((player) => ({
+      id: player.id,
+      balance: player.balance,
+      position: 0,
+    }));
+
+    // Restore pre-dealt cards onto table players
+    if (existingGameState?.playerCards?.length) {
+      for (const pc of existingGameState.playerCards) {
+        const tp = tablePlayers.find((p) => p.id === pc.id);
+        if (tp) {
+          tp.card = { value: pc.value as DeckValue };
+        }
+      }
+    }
+
+    // Restore community cards into a Round for settlement
+    const communityValues = existingGameState?.communityCards ?? [];
+    const round = Round.fromDealt(
+      { players: tablePlayers, pot: 0 },
+      communityValues,
+    );
 
     const tradeData = this.prepareTrades(tablePlayers, pendingTrades);
     round.reveal();
@@ -67,9 +117,13 @@ export class GameEngine {
     const gameState: RoomGameState = {
       roundNumber,
       phase: 'finished',
-      communityCards: round.getCommunityCardValues(),
+      communityCards: communityValues,
       trades: tradeData.summaries,
-      playerCards: tablePlayers.map((p) => ({ id: p.id, value: p.card?.value ?? 0 })),
+      playerCards: tablePlayers.map((p) => ({
+        id: p.id,
+        value: p.card?.value ?? 0,
+        revealed: true,
+      })),
       updatedAt: Date.now(),
     };
 
