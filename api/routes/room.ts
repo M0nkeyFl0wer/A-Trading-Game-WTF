@@ -76,6 +76,20 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
+// Get available characters (static) — must be above /:roomId to avoid
+// "characters" being captured as a room ID parameter.
+router.get('/characters', async (_req: Request, res: Response) => {
+  return res.status(200).json({
+    characters: [
+      { id: 'DEALER', name: 'The Dealer', description: 'Professional and neutral', voiceId: 'EXAVITQu4vr4xnSDxMaL' },
+      { id: 'BULL', name: 'Bull Runner', description: 'Optimistic trader', voiceId: '21m00Tcm4TlvDq8ikWAM' },
+      { id: 'BEAR', name: 'Bear Necessities', description: 'Pessimistic analyst', voiceId: 'AZnzlk1XvdvUeBnXmlld' },
+      { id: 'WHALE', name: 'The Whale', description: 'Big player', voiceId: 'pNInz6obpgDQGcFmaJgB' },
+      { id: 'ROOKIE', name: 'Fresh Trader', description: 'Enthusiastic beginner', voiceId: 'yoZ06aMxZJJ28mfd3POQ' },
+    ]
+  });
+});
+
 // Create a new room (auth required via middleware)
 router.post('/create', async (req: Request, res: Response) => {
   if (!req.user) {
@@ -92,8 +106,8 @@ router.post('/create', async (req: Request, res: Response) => {
   }
 });
 
-// Join a room
-router.post('/join/:roomId', async (req: Request, res: Response) => {
+// Join a room — handler extracted so both URL shapes resolve identically.
+const handleJoinRoom = async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -110,10 +124,13 @@ router.post('/join/:roomId', async (req: Request, res: Response) => {
   } catch (error) {
     return handleRoomError(error, res);
   }
-});
+};
 
-// Leave a room
-router.post('/leave/:roomId', async (req: Request, res: Response) => {
+router.post('/join/:roomId', handleJoinRoom);   // frontend pattern
+router.post('/:roomId/join', handleJoinRoom);    // RESTful alias
+
+// Leave a room — same dual-pattern approach.
+const handleLeaveRoom = async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -127,7 +144,10 @@ router.post('/leave/:roomId', async (req: Request, res: Response) => {
   } catch (error) {
     return handleRoomError(error, res);
   }
-});
+};
+
+router.post('/leave/:roomId', handleLeaveRoom);  // frontend pattern
+router.post('/:roomId/leave', handleLeaveRoom);  // RESTful alias
 
 // Submit trade during active round
 router.post('/:roomId/trade', async (req: Request, res: Response) => {
@@ -169,20 +189,6 @@ router.post('/:roomId/add-bot', async (req: Request, res: Response) => {
   }
 });
 
-// Get room details
-router.get('/:roomId', async (req: Request, res: Response) => {
-  const roomId = normalizeRoomId(req.params.roomId);
-  if (!roomId) {
-    return res.status(400).json({ error: 'Room ID is required' });
-  }
-  try {
-    const room = await roomService.getRoom(roomId);
-    return res.status(200).json(room);
-  } catch (error) {
-    return handleRoomError(error, res);
-  }
-});
-
 // Start game in room
 router.post('/:roomId/start', async (req: Request, res: Response) => {
   if (!req.user) {
@@ -200,42 +206,18 @@ router.post('/:roomId/start', async (req: Request, res: Response) => {
   }
 });
 
-// Get available characters (static)
-router.get('/characters', async (_req: Request, res: Response) => {
-  return res.status(200).json({
-    characters: [
-      {
-        id: 'DEALER',
-        name: 'The Dealer',
-        description: 'Professional and neutral',
-        voiceId: 'EXAVITQu4vr4xnSDxMaL'
-      },
-      {
-        id: 'BULL',
-        name: 'Bull Runner',
-        description: 'Optimistic trader',
-        voiceId: '21m00Tcm4TlvDq8ikWAM'
-      },
-      {
-        id: 'BEAR',
-        name: 'Bear Necessities',
-        description: 'Pessimistic analyst',
-        voiceId: 'AZnzlk1XvdvUeBnXmlld'
-      },
-      {
-        id: 'WHALE',
-        name: 'The Whale',
-        description: 'Big player',
-        voiceId: 'pNInz6obpgDQGcFmaJgB'
-      },
-      {
-        id: 'ROOKIE',
-        name: 'Fresh Trader',
-        description: 'Enthusiastic beginner',
-        voiceId: 'yoZ06aMxZJJ28mfd3POQ'
-      }
-    ]
-  });
+// Get room details — must be last to avoid capturing action segments as IDs.
+router.get('/:roomId', async (req: Request, res: Response) => {
+  const roomId = normalizeRoomId(req.params.roomId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+  try {
+    const room = await roomService.getRoom(roomId);
+    return res.status(200).json(room);
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
 });
 
 export default router;
