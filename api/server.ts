@@ -8,6 +8,7 @@ import { getAuthInstance } from './lib/firebaseAdmin';
 import { roomEvents } from './lib/roomEvents';
 import { logger } from './lib/logger';
 import { metrics } from './lib/metrics';
+import { closeDatabase } from './services/database';
 
 import rootRoutes from './routes/index';
 import authRoutes from './routes/auth';
@@ -184,6 +185,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 process.on('SIGTERM', () => {
   logger.warn('SIGTERM signal received: closing HTTP server');
   server.close(() => {
+    closeDatabase();
     logger.info('HTTP server closed');
     process.exit(0);
   });
@@ -192,6 +194,7 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   logger.warn('SIGINT signal received: closing HTTP server');
   server.close(() => {
+    closeDatabase();
     logger.info('HTTP server closed');
     process.exit(0);
   });

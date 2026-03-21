@@ -44,6 +44,11 @@ lerna-debug.log*
 *.temp
 .cache/
 
+# SQLite databases
+api/data/*.db
+api/data/*.db-wal
+api/data/*.db-shm
+
 # Package manager
 #pnpm-lock.yaml
 package-lock.json

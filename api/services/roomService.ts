@@ -547,5 +547,26 @@ export class RoomService {
   }
 }
 
-const firestore = getFirestoreInstance();
-export const roomService = new RoomService(firestore);
+// ---------------------------------------------------------------------------
+// Singleton: prefer SQLite, fall back to Firestore/memory
+// ---------------------------------------------------------------------------
+
+function createRoomService(): RoomService | InstanceType<typeof import('./sqliteRoomService').SqliteRoomService> {
+  // Use SQLite by default unless STORAGE_BACKEND=firestore is set
+  if (process.env.STORAGE_BACKEND !== 'firestore') {
+    try {
+      // Dynamic require so the module is optional at import-resolution time
+      const { SqliteRoomService } = require('./sqliteRoomService') as typeof import('./sqliteRoomService');
+      console.log('[storage] Using SQLite persistence');
+      return new SqliteRoomService();
+    } catch (err) {
+      console.warn('[storage] SQLite unavailable, falling back to Firestore/memory:', (err as Error).message);
+    }
+  }
+
+  const firestore = getFirestoreInstance();
+  console.log(`[storage] Using ${firestore ? 'Firestore' : 'in-memory'} persistence`);
+  return new RoomService(firestore);
+}
+
+export const roomService = createRoomService();
