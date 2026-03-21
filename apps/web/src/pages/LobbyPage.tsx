@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
