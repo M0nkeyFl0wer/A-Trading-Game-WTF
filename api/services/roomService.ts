@@ -42,6 +42,13 @@ const createRoomId = () => `room_${Math.random().toString(36).slice(2, 8).toUppe
 
 const DEFAULT_BALANCE = 1_000;
 const CHARACTER_SEQUENCE = ['DEALER', 'BULL', 'BEAR', 'WHALE', 'ROOKIE'];
+const BOT_CHARACTERS = ['BULL', 'BEAR', 'WHALE', 'ROOKIE'] as const;
+const BOT_NAMES: Record<string, string> = {
+  BULL: 'Bull Runner',
+  BEAR: 'Bear Necessities',
+  WHALE: 'The Whale',
+  ROOKIE: 'Fresh Trader',
+};
 const TRADING_WINDOW_MS = 20_000;
 const NEXT_ROUND_DELAY_MS = 5_000;
 
@@ -291,6 +298,68 @@ export class RoomService {
       emitRoomUpdated(prepared);
       this.scheduleRoundSettlement(roomId);
       return prepared;
+    });
+  }
+
+  async addBot(roomId: string, requesterId: string, character?: string): Promise<RoomRecord> {
+    const validCharacter = character && BOT_CHARACTERS.includes(character as any)
+      ? character
+      : BOT_CHARACTERS[Math.floor(Math.random() * BOT_CHARACTERS.length)];
+
+    const botId = `bot_${validCharacter.toLowerCase()}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const botName = BOT_NAMES[validCharacter] || 'Bot Trader';
+
+    const applyBot = (room: RoomRecord): RoomRecord => {
+      if (room.hostId !== requesterId) {
+        throw new RoomServiceError(403, 'Only the host can add bots');
+      }
+      if (room.status !== 'waiting' && room.status !== 'finished') {
+        throw new RoomServiceError(400, 'Can only add bots while waiting or between rounds');
+      }
+      if (room.players.length >= room.maxPlayers) {
+        throw new RoomServiceError(400, 'Room is full');
+      }
+
+      const botPlayer: RoomPlayer = {
+        id: botId,
+        name: botName,
+        joinedAt: Date.now(),
+        balance: DEFAULT_BALANCE,
+        character: validCharacter,
+        isBot: true,
+      };
+
+      return {
+        ...room,
+        players: [...room.players, botPlayer],
+        updatedAt: Date.now(),
+      };
+    };
+
+    if (!this.db) {
+      const room = this.memoryRooms.get(roomId);
+      if (!room) {
+        throw new RoomServiceError(404, 'Room not found');
+      }
+      const updated = applyBot({ ...room, players: [...room.players] });
+      this.memoryRooms.set(roomId, updated);
+      emitRoomUpdated(updated);
+      return updated;
+    }
+
+    return this.db.runTransaction(async (tx) => {
+      const ref = this.db!.collection('rooms').doc(roomId);
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) {
+        throw new RoomServiceError(404, 'Room not found');
+      }
+      const room = snapshot.data() as RoomRecord;
+      const updated = applyBot(room);
+      tx.set(ref, updated);
+      return updated;
+    }).then((updated) => {
+      emitRoomUpdated(updated);
+      return updated;
     });
   }
 

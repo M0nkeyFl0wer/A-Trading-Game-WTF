@@ -26,8 +26,11 @@ export default function TablePage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [startingRound, setStartingRound] = useState(false);
+  const [addingBot, setAddingBot] = useState(false);
+  const [botCharacter, setBotCharacter] = useState<'BULL' | 'BEAR' | 'WHALE' | 'ROOKIE'>('BULL');
   const { currentUser } = useAuth();
   const isHost = Boolean(currentUser && room?.hostId && currentUser.uid === room.hostId);
+  const roomIsFull = Boolean(room && room.players.length >= room.maxPlayers);
 
   // Find the current user's card value from the game state
   const myCard: PlayerState | undefined = useMemo(
@@ -98,6 +101,46 @@ export default function TablePage() {
 
   const noticeMessage = roomError || (roomStatus === 'loading' && !room ? 'Connecting to table…' : null);
   const isTradingActive = room?.status === 'playing';
+  const canAddBot = isHost && !isTradingActive && !roomIsFull;
+
+  const BOT_CHARACTER_OPTIONS = ['BULL', 'BEAR', 'WHALE', 'ROOKIE'] as const;
+  const BOT_CHARACTER_LABELS: Record<string, string> = {
+    BULL: 'Bull Runner',
+    BEAR: 'Bear Necessities',
+    WHALE: 'The Whale',
+    ROOKIE: 'Fresh Trader',
+  };
+
+  const handleAddBot = async () => {
+    if (!id || !currentUser) return;
+    setAddingBot(true);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const token = await currentUser.getIdToken();
+      const response = await fetch(`${API_BASE}/api/room/${id}/add-bot`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ character: botCharacter }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error || 'Unable to add bot');
+      }
+      setActionMessage(`${BOT_CHARACTER_LABELS[botCharacter]} joined the table`);
+      // Cycle to next character for convenience
+      const currentIndex = BOT_CHARACTER_OPTIONS.indexOf(botCharacter);
+      setBotCharacter(BOT_CHARACTER_OPTIONS[(currentIndex + 1) % BOT_CHARACTER_OPTIONS.length]);
+    } catch (err) {
+      console.error('Failed to add bot', err);
+      setActionError(err instanceof Error ? err.message : 'Unable to add bot');
+    } finally {
+      setAddingBot(false);
+    }
+  };
 
   const handleStartRound = async () => {
     if (!id || !currentUser) return;
@@ -231,6 +274,31 @@ export default function TablePage() {
                 >
                   {startingRound ? 'Launching…' : 'Start round'}
                 </button>
+              )}
+              {canAddBot && (
+                <>
+                  <select
+                    value={botCharacter}
+                    onChange={(e) => setBotCharacter(e.target.value as typeof botCharacter)}
+                    className="button button--neutral"
+                    aria-label="Bot character"
+                    style={{ cursor: 'pointer' }}
+                  >
+                    {BOT_CHARACTER_OPTIONS.map((char) => (
+                      <option key={char} value={char}>
+                        {BOT_CHARACTER_LABELS[char]}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="button button--neutral"
+                    onClick={handleAddBot}
+                    disabled={addingBot}
+                  >
+                    {addingBot ? 'Adding…' : 'Add Bot'}
+                  </button>
+                </>
               )}
             </div>
           </section>
