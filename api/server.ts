@@ -9,8 +9,13 @@ import { roomEvents } from './lib/roomEvents';
 import { sanitizeRoomForPlayer } from './lib/sanitize';
 import { logger } from './lib/logger';
 import { metrics } from './lib/metrics';
+<<<<<<< HEAD
 import { getDatabase, closeDatabase } from './services/database';
 import { botService } from './services/botService';
+=======
+import { auditService } from './services/auditService';
+import { closeDatabase } from './services/database';
+>>>>>>> worktree-agent-ae062c60
 
 import rootRoutes from './routes/index';
 import authRoutes from './routes/auth';
@@ -54,6 +59,9 @@ const io = new SocketIOServer(server, {
   },
   transports: ['websocket', 'polling']
 });
+
+// Initialize audit service (subscribes to game events, restores hash chain)
+auditService.init();
 
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '10mb' }));
