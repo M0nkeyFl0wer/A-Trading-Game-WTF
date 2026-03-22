@@ -35,6 +35,12 @@ declare global {
   }
 }
 
+// Prevent dev auth bypass from being enabled in production
+if (process.env.NODE_ENV === 'production' && process.env.AUTH_DEV_BYPASS === 'true') {
+  console.error('FATAL: AUTH_DEV_BYPASS cannot be enabled in production');
+  process.exit(1);
+}
+
 const app: Express = express();
 const server = createServer(app);
 
@@ -96,7 +102,7 @@ io.use(async (socket, next) => {
 
     if (!auth) {
       if (process.env.AUTH_DEV_BYPASS === 'true') {
-        socket.data.user = { id: 'dev-user' };
+        socket.data.user = { id: `dev-${socket.id}`, email: 'dev@example.com' };
         return next();
       }
       return next(new Error('Authentication unavailable'));
@@ -125,31 +131,26 @@ io.use(async (socket, next) => {
 io.on('connection', (socket) => {
   logger.info({ socketId: socket.id }, 'socket connected');
 
-  socket.on('join-room', (roomId: string) => {
-    socket.join(roomId);
-    logger.info({ socketId: socket.id, roomId }, 'socket joined room');
+  socket.on('join-room', async (roomId: string) => {
+    // Only allow joining if the user is actually a player in this room
+    try {
+      const { roomService } = require('./services/roomService');
+      const room = await roomService.getRoom(roomId);
+      const isPlayer = room.players.some((p: any) => p.id === socket.data.user?.id);
+      if (!isPlayer) {
+        socket.emit('error', { message: 'Not a player in this room' });
+        return;
+      }
+      socket.join(roomId);
+      logger.info({ socketId: socket.id, roomId }, 'socket joined room');
+    } catch (err) {
+      socket.emit('error', { message: 'Room not found' });
+    }
   });
 
   socket.on('leave-room', (roomId: string) => {
     socket.leave(roomId);
     logger.info({ socketId: socket.id, roomId }, 'socket left room');
-  });
-
-  socket.on('trade', (data) => {
-    const roomId = data.roomId;
-    if (roomId) {
-      io.to(roomId).emit('trade-update', data);
-    }
-  });
-
-  socket.on('message', (data) => {
-    const roomId = data.roomId;
-    if (roomId) {
-      io.to(roomId).emit('new-message', {
-        ...data,
-        timestamp: Date.now()
-      });
-    }
   });
 
   socket.on('disconnect', () => {

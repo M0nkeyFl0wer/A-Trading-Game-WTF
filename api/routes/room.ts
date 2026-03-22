@@ -22,16 +22,20 @@ const parseMaxPlayers = (value: unknown): number => {
   return num;
 };
 
+const MAX_PRICE = 200;
+const MIN_PRICE = -50;
+const MAX_QUANTITY = 10;
+
 const parseOrderPayload = (body: any) => {
   const price = Number(body?.price);
   const quantity = Number(body?.quantity ?? 1);
   const side = body?.side;
 
-  if (!Number.isFinite(price) || price <= 0) {
-    throw new RoomServiceError(400, 'Price must be greater than zero');
+  if (!Number.isFinite(price) || price < MIN_PRICE || price > MAX_PRICE) {
+    throw new RoomServiceError(400, `Price must be between ${MIN_PRICE} and ${MAX_PRICE}`);
   }
-  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isInteger(quantity)) {
-    throw new RoomServiceError(400, 'Quantity must be a positive integer');
+  if (!Number.isFinite(quantity) || quantity < 1 || quantity > MAX_QUANTITY || !Number.isInteger(quantity)) {
+    throw new RoomServiceError(400, `Quantity must be an integer between 1 and ${MAX_QUANTITY}`);
   }
   if (side !== 'bid' && side !== 'ask') {
     throw new RoomServiceError(400, 'Side must be "bid" or "ask"');
