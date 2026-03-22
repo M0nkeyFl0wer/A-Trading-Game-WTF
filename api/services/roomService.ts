@@ -1,9 +1,11 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { getFirestoreInstance } from '../lib/firebaseAdmin';
 import { emitRoomUpdated, emitRoomRemoved } from '../lib/roomEvents';
-import { gameEngine, type RoomGameState, type TradeSummary } from './gameEngine';
+import { PHASE_SEQUENCE } from '@trading-game/shared';
+import type { TradingPhase } from '@trading-game/shared';
+import { gameEngine, type RoomGameState } from './gameEngine';
 
-export type RoomStatus = 'waiting' | 'playing' | 'starting' | 'finished';
+export type RoomStatus = 'waiting' | 'blind' | 'flop' | 'turn' | 'settling' | 'finished';
 
 export interface RoomPlayer {
   id: string;
@@ -27,8 +29,6 @@ export interface RoomRecord {
   updatedAt: number;
   roundNumber: number;
   gameState?: RoomGameState;
-  roundEndsAt?: number;
-  pendingTrades?: TradeSummary[];
 }
 
 export class RoomServiceError extends Error {
@@ -42,18 +42,10 @@ const createRoomId = () => `room_${Math.random().toString(36).slice(2, 8).toUppe
 
 const DEFAULT_BALANCE = 1_000;
 const CHARACTER_SEQUENCE = ['DEALER', 'BULL', 'BEAR', 'WHALE', 'ROOKIE'];
-const BOT_CHARACTERS = ['BULL', 'BEAR', 'WHALE', 'ROOKIE'] as const;
-const BOT_NAMES: Record<string, string> = {
-  BULL: 'Bull Runner',
-  BEAR: 'Bear Necessities',
-  WHALE: 'The Whale',
-  ROOKIE: 'Fresh Trader',
-};
-const TRADING_WINDOW_MS = 20_000;
 const NEXT_ROUND_DELAY_MS = 5_000;
 
 type RoomTimers = {
-  settle?: NodeJS.Timeout;
+  phase?: NodeJS.Timeout;
   nextRound?: NodeJS.Timeout;
 };
 
@@ -79,6 +71,10 @@ export class RoomService {
     }
   }
 
+  // =========================================================================
+  // CRUD
+  // =========================================================================
+
   async listRooms(): Promise<RoomRecord[]> {
     if (!this.db) {
       return Array.from(this.memoryRooms.values());
@@ -90,16 +86,11 @@ export class RoomService {
   async getRoom(roomId: string): Promise<RoomRecord> {
     if (!this.db) {
       const room = this.memoryRooms.get(roomId);
-      if (!room) {
-        throw new RoomServiceError(404, 'Room not found');
-      }
+      if (!room) throw new RoomServiceError(404, 'Room not found');
       return room;
     }
-
     const doc = await this.db.collection('rooms').doc(roomId).get();
-    if (!doc.exists) {
-      throw new RoomServiceError(404, 'Room not found');
-    }
+    if (!doc.exists) throw new RoomServiceError(404, 'Room not found');
     return doc.data() as RoomRecord;
   }
 
@@ -117,7 +108,6 @@ export class RoomService {
       createdAt: now,
       updatedAt: now,
       roundNumber: 0,
-      pendingTrades: [],
     };
 
     if (!this.db) {
@@ -141,9 +131,7 @@ export class RoomService {
     return this.db.runTransaction(async (tx) => {
       const ref = this.db!.collection('rooms').doc(roomId);
       const snapshot = await tx.get(ref);
-      if (!snapshot.exists) {
-        throw new RoomServiceError(404, 'Room not found');
-      }
+      if (!snapshot.exists) throw new RoomServiceError(404, 'Room not found');
       const room = snapshot.data() as RoomRecord;
       const updated = this.joinRoomState(room, player);
       tx.set(ref, updated);
@@ -166,9 +154,7 @@ export class RoomService {
     return this.db.runTransaction(async (tx) => {
       const ref = this.db!.collection('rooms').doc(roomId);
       const snapshot = await tx.get(ref);
-      if (!snapshot.exists) {
-        throw new RoomServiceError(404, 'Room not found');
-      }
+      if (!snapshot.exists) throw new RoomServiceError(404, 'Room not found');
       const room = snapshot.data() as RoomRecord;
       const updated = this.leaveRoomState(room, playerId);
 
@@ -184,61 +170,35 @@ export class RoomService {
     });
   }
 
-  async submitTrade(
+  // =========================================================================
+  // Order book operations
+  // =========================================================================
+
+  async submitOrder(
     roomId: string,
     playerId: string,
-    trade: { price: number; quantity: number; side: 'buy' | 'sell' },
+    order: { price: number; quantity: number; side: 'bid' | 'ask' },
   ): Promise<RoomRecord> {
-    const applyTrade = (room: RoomRecord): RoomRecord => {
-      if (room.status !== 'playing') {
-        throw new RoomServiceError(400, 'Round is not accepting trades');
+    const applyOrder = (room: RoomRecord): RoomRecord => {
+      const phase = room.status;
+      if (phase !== 'blind' && phase !== 'flop' && phase !== 'turn') {
+        throw new RoomServiceError(400, 'Round is not accepting orders');
       }
       const player = room.players.find((p) => p.id === playerId);
-      if (!player) {
-        throw new RoomServiceError(404, 'Player not found in room');
-      }
-      const counterparties = room.players.filter((p) => p.id !== playerId);
-      const counterparty = counterparties[Math.floor(Math.random() * counterparties.length)] || player;
-      const summary: TradeSummary = {
-        id: `trade_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        playerId,
-        playerName: player.name,
-        counterpartyId: counterparty.id,
-        counterpartyName: counterparty.name,
-        quantity: trade.quantity,
-        price: trade.price,
-        value: trade.price * trade.quantity,
-        type: trade.side,
-        timestamp: Date.now(),
-      };
-      const pending = [...(room.pendingTrades ?? []), summary];
-      const gameState: RoomGameState = room.gameState || {
-        roundNumber: room.roundNumber,
-        phase: room.status,
-        communityCards: [],
-        trades: [],
-        playerCards: [],
-        updatedAt: Date.now(),
-      };
-      const updatedGameState: RoomGameState = {
-        ...gameState,
-        trades: [...(gameState.trades ?? []), summary],
-        updatedAt: Date.now(),
-      };
+      if (!player) throw new RoomServiceError(404, 'Player not found in room');
+
+      const { gameState } = gameEngine.submitOrder(room, playerId, player.name, order);
       return {
         ...room,
-        pendingTrades: pending,
-        gameState: updatedGameState,
+        gameState,
         updatedAt: Date.now(),
       };
     };
 
     if (!this.db) {
       const room = this.memoryRooms.get(roomId);
-      if (!room) {
-        throw new RoomServiceError(404, 'Room not found');
-      }
-      const updated = applyTrade({ ...room, players: [...room.players] });
+      if (!room) throw new RoomServiceError(404, 'Room not found');
+      const updated = applyOrder({ ...room, players: [...room.players] });
       this.memoryRooms.set(roomId, updated);
       emitRoomUpdated(updated);
       return updated;
@@ -247,11 +207,9 @@ export class RoomService {
     return this.db.runTransaction(async (tx) => {
       const ref = this.db!.collection('rooms').doc(roomId);
       const snapshot = await tx.get(ref);
-      if (!snapshot.exists) {
-        throw new RoomServiceError(404, 'Room not found');
-      }
+      if (!snapshot.exists) throw new RoomServiceError(404, 'Room not found');
       const room = snapshot.data() as RoomRecord;
-      const updated = applyTrade(room);
+      const updated = applyOrder(room);
       tx.set(ref, updated);
       return updated;
     }).then((updated) => {
@@ -259,6 +217,56 @@ export class RoomService {
       return updated;
     });
   }
+
+  async cancelOrder(roomId: string, playerId: string, orderId: string): Promise<RoomRecord> {
+    const applyCancel = (room: RoomRecord): RoomRecord => {
+      const phase = room.status;
+      if (phase !== 'blind' && phase !== 'flop' && phase !== 'turn') {
+        throw new RoomServiceError(400, 'Round is not accepting order changes');
+      }
+      if (!room.gameState) throw new RoomServiceError(400, 'No active game state');
+
+      // Verify the order belongs to this player
+      const orderToCancel = room.gameState.orders.find((o) => o.id === orderId);
+      if (!orderToCancel) throw new RoomServiceError(404, 'Order not found');
+      if (orderToCancel.playerId !== playerId) {
+        throw new RoomServiceError(403, 'Cannot cancel another player\'s order');
+      }
+
+      const gameState = gameEngine.cancelOrder(room, orderId);
+      return {
+        ...room,
+        gameState,
+        updatedAt: Date.now(),
+      };
+    };
+
+    if (!this.db) {
+      const room = this.memoryRooms.get(roomId);
+      if (!room) throw new RoomServiceError(404, 'Room not found');
+      const updated = applyCancel({ ...room, players: [...room.players] });
+      this.memoryRooms.set(roomId, updated);
+      emitRoomUpdated(updated);
+      return updated;
+    }
+
+    return this.db.runTransaction(async (tx) => {
+      const ref = this.db!.collection('rooms').doc(roomId);
+      const snapshot = await tx.get(ref);
+      if (!snapshot.exists) throw new RoomServiceError(404, 'Room not found');
+      const room = snapshot.data() as RoomRecord;
+      const updated = applyCancel(room);
+      tx.set(ref, updated);
+      return updated;
+    }).then((updated) => {
+      emitRoomUpdated(updated);
+      return updated;
+    });
+  }
+
+  // =========================================================================
+  // Game lifecycle
+  // =========================================================================
 
   async startRoom(roomId: string, requesterId: string): Promise<RoomRecord> {
     const canStart = (room: RoomRecord) => {
@@ -272,23 +280,19 @@ export class RoomService {
 
     if (!this.db) {
       const room = this.memoryRooms.get(roomId);
-      if (!room) {
-        throw new RoomServiceError(404, 'Room not found');
-      }
+      if (!room) throw new RoomServiceError(404, 'Room not found');
       canStart(room);
       const prepared = this.prepareRound({ ...room, players: [...room.players] });
       this.memoryRooms.set(roomId, prepared);
       emitRoomUpdated(prepared);
-      this.scheduleRoundSettlement(roomId);
+      this.schedulePhaseTransition(roomId);
       return prepared;
     }
 
     return this.db.runTransaction(async (tx) => {
       const ref = this.db!.collection('rooms').doc(roomId);
       const snapshot = await tx.get(ref);
-      if (!snapshot.exists) {
-        throw new RoomServiceError(404, 'Room not found');
-      }
+      if (!snapshot.exists) throw new RoomServiceError(404, 'Room not found');
       const room = snapshot.data() as RoomRecord;
       canStart(room);
       const prepared = this.prepareRound(room);
@@ -296,92 +300,25 @@ export class RoomService {
       return prepared;
     }).then((prepared) => {
       emitRoomUpdated(prepared);
-      this.scheduleRoundSettlement(roomId);
+      this.schedulePhaseTransition(roomId);
       return prepared;
     });
   }
 
-  async addBot(roomId: string, requesterId: string, character?: string): Promise<RoomRecord> {
-    const validCharacter = character && BOT_CHARACTERS.includes(character as any)
-      ? character
-      : BOT_CHARACTERS[Math.floor(Math.random() * BOT_CHARACTERS.length)];
-
-    const botId = `bot_${validCharacter.toLowerCase()}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const botName = BOT_NAMES[validCharacter] || 'Bot Trader';
-
-    const applyBot = (room: RoomRecord): RoomRecord => {
-      if (room.hostId !== requesterId) {
-        throw new RoomServiceError(403, 'Only the host can add bots');
-      }
-      if (room.status !== 'waiting' && room.status !== 'finished') {
-        throw new RoomServiceError(400, 'Can only add bots while waiting or between rounds');
-      }
-      if (room.players.length >= room.maxPlayers) {
-        throw new RoomServiceError(400, 'Room is full');
-      }
-
-      const botPlayer: RoomPlayer = {
-        id: botId,
-        name: botName,
-        joinedAt: Date.now(),
-        balance: DEFAULT_BALANCE,
-        character: validCharacter,
-        isBot: true,
-      };
-
-      return {
-        ...room,
-        players: [...room.players, botPlayer],
-        updatedAt: Date.now(),
-      };
-    };
-
-    if (!this.db) {
-      const room = this.memoryRooms.get(roomId);
-      if (!room) {
-        throw new RoomServiceError(404, 'Room not found');
-      }
-      const updated = applyBot({ ...room, players: [...room.players] });
-      this.memoryRooms.set(roomId, updated);
-      emitRoomUpdated(updated);
-      return updated;
-    }
-
-    return this.db.runTransaction(async (tx) => {
-      const ref = this.db!.collection('rooms').doc(roomId);
-      const snapshot = await tx.get(ref);
-      if (!snapshot.exists) {
-        throw new RoomServiceError(404, 'Room not found');
-      }
-      const room = snapshot.data() as RoomRecord;
-      const updated = applyBot(room);
-      tx.set(ref, updated);
-      return updated;
-    }).then((updated) => {
-      emitRoomUpdated(updated);
-      return updated;
-    });
-  }
+  // =========================================================================
+  // State helpers
+  // =========================================================================
 
   private joinRoomState(room: RoomRecord, player: { id: string; name: string }): RoomRecord {
-    if (room.players.find((p) => p.id === player.id)) {
-      return room;
-    }
-
+    if (room.players.find((p) => p.id === player.id)) return room;
     if (room.players.length >= room.maxPlayers) {
       throw new RoomServiceError(400, 'Room is full');
     }
-
-    const newPlayer = createPlayer(player.id, player.name, room.players.length);
-
-    const updated: RoomRecord = {
+    return {
       ...room,
-      players: [...room.players, newPlayer],
-      status: room.players.length + 1 === room.maxPlayers ? 'playing' : room.status,
+      players: [...room.players, createPlayer(player.id, player.name, room.players.length)],
       updatedAt: Date.now(),
     };
-
-    return updated;
   }
 
   private leaveRoomState(room: RoomRecord, playerId: string): RoomRecord {
@@ -398,7 +335,7 @@ export class RoomService {
       hostName = newHost?.name || hostName;
     }
 
-    const updated: RoomRecord = {
+    return {
       ...room,
       hostId,
       hostName,
@@ -407,100 +344,155 @@ export class RoomService {
       updatedAt: Date.now(),
       gameState: remainingPlayers.length === 0 ? undefined : room.gameState,
     };
-
-    return updated;
   }
 
+  /**
+   * Deal cards and enter the 'blind' phase.
+   */
   private prepareRound(room: RoomRecord): RoomRecord {
     const roundNumber = room.roundNumber + 1;
-    const roundEndsAt = Date.now() + TRADING_WINDOW_MS;
-    const prepared: RoomRecord = {
+    const roomForDeal: RoomRecord = { ...room, roundNumber };
+    const gameState = gameEngine.dealRound(roomForDeal);
+
+    return {
       ...room,
-      status: 'playing',
+      status: 'blind',
       roundNumber,
-      roundEndsAt,
-      pendingTrades: [],
+      gameState,
       updatedAt: Date.now(),
     };
+  }
 
-    // Deal cards now so players see their hand during the trading window
-    const dealtState = gameEngine.dealRound(prepared);
-    prepared.gameState = dealtState;
-    return prepared;
+  /**
+   * Advance to the next phase. If we're past the last trading phase, settle.
+   */
+  private advancePhase(room: RoomRecord): RoomRecord {
+    const advanced = gameEngine.advancePhase(room);
+    if (!advanced) {
+      // Past last trading phase -- settle
+      return this.finalizeRound(room);
+    }
+
+    return {
+      ...room,
+      status: advanced.phase as RoomStatus,
+      gameState: advanced,
+      updatedAt: Date.now(),
+    };
   }
 
   private finalizeRound(room: RoomRecord): RoomRecord {
-    const result = gameEngine.completeRound(room, room.pendingTrades ?? []);
+    const result = gameEngine.settleRound(room);
     return {
       ...room,
-      status: result.status,
+      status: 'finished',
       players: result.players,
       roundNumber: result.roundNumber,
       gameState: result.gameState,
-      pendingTrades: [],
-      roundEndsAt: undefined,
       updatedAt: Date.now(),
     };
   }
 
-  private scheduleRoundSettlement(roomId: string, delayMs = TRADING_WINDOW_MS) {
+  // =========================================================================
+  // Phase timer chain
+  // =========================================================================
+
+  /**
+   * Schedule the transition out of the current phase.
+   *
+   * Phase chain:
+   *   blind (30s) -> flop (20s) -> turn (20s) -> settle -> next round (5s)
+   */
+  private schedulePhaseTransition(roomId: string) {
+    const room = this.memoryRooms.get(roomId);
+    const gs = room?.gameState;
+    if (!gs) return;
+
+    const currentPhase = gs.phase;
+    const config = PHASE_SEQUENCE.find((p) => p.phase === currentPhase);
+    if (!config) return;
+
+    const delay = Math.max(1_000, gs.phaseEndsAt - Date.now());
+
     const timers = this.getTimers(roomId);
-    if (timers.settle) {
-      clearTimeout(timers.settle);
-    }
-    timers.settle = setTimeout(() => {
-      this.settleRound(roomId).catch((error) => {
-        console.error('Failed to settle round', error);
+    if (timers.phase) clearTimeout(timers.phase);
+
+    timers.phase = setTimeout(() => {
+      this.handlePhaseExpiry(roomId).catch((error) => {
+        console.error('Phase transition failed', error);
       });
-    }, delayMs);
+    }, delay);
   }
 
-  private async settleRound(roomId: string): Promise<RoomRecord | null> {
+  private async handlePhaseExpiry(roomId: string): Promise<void> {
     const timers = this.getTimers(roomId);
-    if (timers.settle) {
-      clearTimeout(timers.settle);
-      timers.settle = undefined;
+    if (timers.phase) {
+      clearTimeout(timers.phase);
+      timers.phase = undefined;
     }
 
     if (!this.db) {
       const room = this.memoryRooms.get(roomId);
-      if (!room) {
-        return null;
+      if (!room) return;
+      const updated = this.advancePhase({ ...room, players: [...room.players] });
+      this.memoryRooms.set(roomId, updated);
+      emitRoomUpdated(updated);
+
+      if (updated.status === 'finished') {
+        this.scheduleNextRound(roomId, updated);
+      } else {
+        this.schedulePhaseTransition(roomId);
       }
-      const finalized = this.finalizeRound({ ...room, players: [...room.players] });
-      this.memoryRooms.set(roomId, finalized);
-      emitRoomUpdated(finalized);
-      this.scheduleNextRound(roomId, finalized);
-      return finalized;
+      return;
     }
 
-    const finalized = await this.db.runTransaction(async (tx) => {
+    const updated = await this.db.runTransaction(async (tx) => {
       const ref = this.db!.collection('rooms').doc(roomId);
       const snapshot = await tx.get(ref);
-      if (!snapshot.exists) {
-        return null;
-      }
+      if (!snapshot.exists) return null;
       const room = snapshot.data() as RoomRecord;
-      const updated = this.finalizeRound(room);
-      tx.set(ref, updated);
-      return updated;
+      const result = this.advancePhase(room);
+      tx.set(ref, result);
+      return result;
     });
 
-    if (finalized) {
-      emitRoomUpdated(finalized);
-      this.scheduleNextRound(roomId, finalized);
+    if (updated) {
+      emitRoomUpdated(updated);
+      if (updated.status === 'finished') {
+        this.scheduleNextRound(roomId, updated);
+      } else {
+        // For Firestore mode, read back and schedule
+        this.schedulePhaseTransitionFirestore(roomId, updated);
+      }
     }
-    return finalized;
+  }
+
+  /**
+   * In Firestore mode, schedule based on the room record we already have.
+   */
+  private schedulePhaseTransitionFirestore(roomId: string, room: RoomRecord) {
+    const gs = room.gameState;
+    if (!gs) return;
+
+    const config = PHASE_SEQUENCE.find((p) => p.phase === gs.phase);
+    if (!config) return;
+
+    const delay = Math.max(1_000, gs.phaseEndsAt - Date.now());
+    const timers = this.getTimers(roomId);
+    if (timers.phase) clearTimeout(timers.phase);
+
+    timers.phase = setTimeout(() => {
+      this.handlePhaseExpiry(roomId).catch((error) => {
+        console.error('Phase transition failed', error);
+      });
+    }, delay);
   }
 
   private scheduleNextRound(roomId: string, room: RoomRecord) {
-    if (room.players.length < 2) {
-      return;
-    }
+    if (room.players.length < 2) return;
     const timers = this.getTimers(roomId);
-    if (timers.nextRound) {
-      clearTimeout(timers.nextRound);
-    }
+    if (timers.nextRound) clearTimeout(timers.nextRound);
+
     timers.nextRound = setTimeout(() => {
       this.beginAutomatedRound(roomId).catch((error) => {
         console.error('Failed to start next round', error);
@@ -517,43 +509,39 @@ export class RoomService {
 
     if (!this.db) {
       const room = this.memoryRooms.get(roomId);
-      if (!room || room.players.length < 2) {
-        return room ?? null;
-      }
+      if (!room || room.players.length < 2) return room ?? null;
       const prepared = this.prepareRound({ ...room, players: [...room.players] });
       this.memoryRooms.set(roomId, prepared);
       emitRoomUpdated(prepared);
-      this.scheduleRoundSettlement(roomId);
+      this.schedulePhaseTransition(roomId);
       return prepared;
     }
 
     const prepared = await this.db.runTransaction(async (tx) => {
       const ref = this.db!.collection('rooms').doc(roomId);
       const snapshot = await tx.get(ref);
-      if (!snapshot.exists) {
-        return null;
-      }
+      if (!snapshot.exists) return null;
       const room = snapshot.data() as RoomRecord;
-      if (room.players.length < 2) {
-        return room;
-      }
+      if (room.players.length < 2) return room;
       const updated = this.prepareRound(room);
       tx.set(ref, updated);
       return updated;
     });
 
-    if (prepared) {
+    if (prepared && prepared.gameState) {
       emitRoomUpdated(prepared);
-      this.scheduleRoundSettlement(roomId);
+      this.schedulePhaseTransitionFirestore(prepared.id, prepared);
     }
     return prepared;
   }
 
+  // =========================================================================
+  // Memory-mode helpers
+  // =========================================================================
+
   private joinMemoryRoom(roomId: string, player: { id: string; name: string }): RoomRecord {
     const room = this.memoryRooms.get(roomId);
-    if (!room) {
-      throw new RoomServiceError(404, 'Room not found');
-    }
+    if (!room) throw new RoomServiceError(404, 'Room not found');
     const updated = this.joinRoomState({ ...room, players: [...room.players] }, player);
     this.memoryRooms.set(roomId, updated);
     return updated;
@@ -561,9 +549,7 @@ export class RoomService {
 
   private leaveMemoryRoom(roomId: string, playerId: string): RoomRecord {
     const room = this.memoryRooms.get(roomId);
-    if (!room) {
-      throw new RoomServiceError(404, 'Room not found');
-    }
+    if (!room) throw new RoomServiceError(404, 'Room not found');
     const updated = this.leaveRoomState({ ...room, players: [...room.players] }, playerId);
     if (updated.players.length === 0) {
       this.memoryRooms.delete(roomId);
@@ -573,6 +559,10 @@ export class RoomService {
     }
     return updated;
   }
+
+  // =========================================================================
+  // Timer management
+  // =========================================================================
 
   private getTimers(roomId: string): RoomTimers {
     let timers = this.timers.get(roomId);
@@ -585,54 +575,29 @@ export class RoomService {
 
   private clearTimers(roomId: string) {
     const timers = this.timers.get(roomId);
-    if (!timers) {
-      return;
-    }
-    if (timers.settle) {
-      clearTimeout(timers.settle);
-    }
-    if (timers.nextRound) {
-      clearTimeout(timers.nextRound);
-    }
+    if (!timers) return;
+    if (timers.phase) clearTimeout(timers.phase);
+    if (timers.nextRound) clearTimeout(timers.nextRound);
     this.timers.delete(roomId);
   }
 
   private async restoreActiveRounds() {
-    if (!this.db) {
-      return;
+    if (!this.db) return;
+
+    // Restore any rooms in active trading phases
+    const phases: RoomStatus[] = ['blind', 'flop', 'turn'];
+    for (const phase of phases) {
+      const snapshot = await this.db.collection('rooms').where('status', '==', phase).get();
+      const now = Date.now();
+      snapshot.docs.forEach((doc) => {
+        const room = doc.data() as RoomRecord;
+        if (room.gameState?.phaseEndsAt && room.gameState.phaseEndsAt > now) {
+          this.schedulePhaseTransitionFirestore(room.id, room);
+        }
+      });
     }
-    const snapshot = await this.db.collection('rooms').where('status', '==', 'playing').get();
-    const now = Date.now();
-    snapshot.docs.forEach((doc) => {
-      const room = doc.data() as RoomRecord;
-      if (room.roundEndsAt && room.roundEndsAt > now) {
-        const delay = Math.max(1_000, room.roundEndsAt - now);
-        this.scheduleRoundSettlement(room.id, delay);
-      }
-    });
   }
 }
 
-// ---------------------------------------------------------------------------
-// Singleton: prefer SQLite, fall back to Firestore/memory
-// ---------------------------------------------------------------------------
-
-function createRoomService(): RoomService | InstanceType<typeof import('./sqliteRoomService').SqliteRoomService> {
-  // Use SQLite by default unless STORAGE_BACKEND=firestore is set
-  if (process.env.STORAGE_BACKEND !== 'firestore') {
-    try {
-      // Dynamic require so the module is optional at import-resolution time
-      const { SqliteRoomService } = require('./sqliteRoomService') as typeof import('./sqliteRoomService');
-      console.log('[storage] Using SQLite persistence');
-      return new SqliteRoomService();
-    } catch (err) {
-      console.warn('[storage] SQLite unavailable, falling back to Firestore/memory:', (err as Error).message);
-    }
-  }
-
-  const firestore = getFirestoreInstance();
-  console.log(`[storage] Using ${firestore ? 'Firestore' : 'in-memory'} persistence`);
-  return new RoomService(firestore);
-}
-
-export const roomService = createRoomService();
+const firestore = getFirestoreInstance();
+export const roomService = new RoomService(firestore);
