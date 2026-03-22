@@ -94,3 +94,49 @@ export interface BotResult {
 }
 
 export type Indicator = 'RSI' | 'MACD' | 'VWAP' | 'SMA' | 'EMA' | 'BOLLINGER';
+
+// ============================================================================
+// 3-Phase Trading Types (order book + CFD settlement)
+// ============================================================================
+
+/** The three active trading phases plus lifecycle states */
+export type TradingPhase = 'blind' | 'flop' | 'turn';
+
+export interface PhaseConfig {
+  phase: TradingPhase;
+  durationMs: number;
+  /** How many community cards are visible during this phase */
+  revealedCards: number;
+}
+
+/** Phase sequence: blind -> flop -> turn, then settlement */
+export const PHASE_SEQUENCE: PhaseConfig[] = [
+  { phase: 'blind', durationMs: 30_000, revealedCards: 0 },
+  { phase: 'flop',  durationMs: 20_000, revealedCards: 1 },
+  { phase: 'turn',  durationMs: 20_000, revealedCards: 3 },
+];
+
+export type OrderStatus = 'open' | 'filled' | 'partial' | 'cancelled';
+
+export interface Order {
+  id: string;
+  playerId: string;
+  playerName: string;
+  side: 'bid' | 'ask';
+  price: number;
+  quantity: number;
+  remainingQty: number;
+  status: OrderStatus;
+  timestamp: number;
+}
+
+export interface MatchedTrade {
+  id: string;
+  buyOrderId: string;
+  sellOrderId: string;
+  buyerId: string;
+  sellerId: string;
+  price: number;
+  quantity: number;
+  timestamp: number;
+}

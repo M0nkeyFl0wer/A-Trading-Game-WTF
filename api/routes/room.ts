@@ -20,23 +20,22 @@ const parseMaxPlayers = (value: unknown): number => {
   return num;
 };
 
-const parseTradePayload = (body: any) => {
+const parseOrderPayload = (body: any) => {
   const price = Number(body?.price);
   const quantity = Number(body?.quantity ?? 1);
-  const side = body?.side === 'sell' ? 'sell' : 'buy';
+  const side = body?.side;
 
   if (!Number.isFinite(price) || price <= 0) {
     throw new RoomServiceError(400, 'Price must be greater than zero');
   }
-  if (!Number.isFinite(quantity) || quantity <= 0) {
-    throw new RoomServiceError(400, 'Quantity must be greater than zero');
+  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isInteger(quantity)) {
+    throw new RoomServiceError(400, 'Quantity must be a positive integer');
+  }
+  if (side !== 'bid' && side !== 'ask') {
+    throw new RoomServiceError(400, 'Side must be "bid" or "ask"');
   }
 
-  return {
-    price,
-    quantity,
-    side: side as 'buy' | 'sell',
-  };
+  return { price, quantity, side: side as 'bid' | 'ask' };
 };
 
 const normalizeRoomId = (value: string | string[] | undefined): string => {
@@ -127,8 +126,8 @@ router.post('/leave/:roomId', async (req: Request, res: Response) => {
   }
 });
 
-// Submit trade during active round
-router.post('/:roomId/trade', async (req: Request, res: Response) => {
+// Submit order to order book
+router.post('/:roomId/order', async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -137,8 +136,66 @@ router.post('/:roomId/trade', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Room ID is required' });
   }
   try {
-    const trade = parseTradePayload(req.body);
-    const room = await roomService.submitTrade(roomId, req.user.id, trade);
+    const order = parseOrderPayload(req.body);
+    const room = await roomService.submitOrder(roomId, req.user.id, order);
+    return res.status(200).json({ success: true, room });
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
+});
+
+// Cancel an order
+router.delete('/:roomId/order/:orderId', async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const roomId = normalizeRoomId(req.params.roomId);
+  const orderId = normalizeRoomId(req.params.orderId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+  if (!orderId) {
+    return res.status(400).json({ error: 'Order ID is required' });
+  }
+  try {
+    const room = await roomService.cancelOrder(roomId, req.user.id, orderId);
+    return res.status(200).json({ success: true, room });
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
+});
+
+// Legacy trade endpoint (deprecated -- use POST /:roomId/order instead)
+router.post('/:roomId/trade', async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const roomId = normalizeRoomId(req.params.roomId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+
+  // Map old trade payload to new order format
+  try {
+    const price = Number(req.body?.price);
+    const quantity = Number(req.body?.quantity ?? 1);
+    const oldSide = req.body?.side;
+    const side: 'bid' | 'ask' = oldSide === 'sell' ? 'ask' : 'bid';
+
+    if (!Number.isFinite(price) || price <= 0) {
+      throw new RoomServiceError(400, 'Price must be greater than zero');
+    }
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new RoomServiceError(400, 'Quantity must be greater than zero');
+    }
+
+    const room = await roomService.submitOrder(roomId, req.user.id, {
+      price,
+      quantity: Math.round(quantity),
+      side,
+    });
+
+    res.setHeader('X-Deprecated', 'Use POST /:roomId/order instead');
     return res.status(200).json({ success: true, room });
   } catch (error) {
     return handleRoomError(error, res);

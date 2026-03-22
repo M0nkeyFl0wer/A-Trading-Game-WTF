@@ -12,6 +12,7 @@
   "packageManager": "pnpm@10.17.1",
   "dependencies": {
     "@trading-game/shared": "workspace:*",
+    "@trading-game/core": "workspace:*",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "express-rate-limit": "^8.1.0",
