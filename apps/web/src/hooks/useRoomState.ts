@@ -1,28 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
+import type { Order, MatchedTrade, TradingPhase } from '@trading-game/shared';
 import { sanitizeInput } from '../lib/security';
 import { useAuth } from '../contexts/AuthContext';
 import {
   useGameStore,
   type PlayerState,
   type GamePhase,
-  type TradeEvent,
 } from '../store';
 
 type HookStatus = 'idle' | 'loading' | 'ready' | 'error';
-
-interface ServerTradeSummary {
-  id: string;
-  playerId: string;
-  playerName: string;
-  counterpartyId: string;
-  counterpartyName: string;
-  quantity: number;
-  price: number;
-  value: number;
-  type: 'buy' | 'sell';
-  timestamp: number;
-}
 
 interface NormalizedRoom {
   id: string;
@@ -34,16 +21,28 @@ interface NormalizedRoom {
   players: PlayerState[];
   updatedAt: number;
   roundNumber?: number;
-  trades?: ServerTradeSummary[];
-  roundEndsAt?: number;
+  phaseEndsAt?: number;
 }
 
 const statusToPhaseMap: Record<string, GamePhase> = {
   idle: 'idle',
   waiting: 'waiting',
   starting: 'starting',
+  blind: 'playing',
+  flop: 'playing',
+  turn: 'playing',
   playing: 'playing',
-  revealing: 'revealing',
+  finished: 'finished',
+};
+
+const statusToTradingPhase: Record<string, TradingPhase | 'waiting' | 'finished' | null> = {
+  idle: null,
+  waiting: 'waiting',
+  starting: null,
+  blind: 'blind',
+  flop: 'flop',
+  turn: 'turn',
+  playing: null,
   finished: 'finished',
 };
 
@@ -66,11 +65,12 @@ const buildSocketUrl = (): string | null => {
 const mapStatusToPhase = (status?: string): GamePhase =>
   statusToPhaseMap[status || 'idle'] ?? 'idle';
 
+const mapStatusToTradingPhase = (status?: string): TradingPhase | 'waiting' | 'finished' | null =>
+  statusToTradingPhase[status || 'idle'] ?? null;
+
 const normalizePlayers = (
   players: unknown,
   hostName: string,
-  cardValues?: Map<string, number>,
-  cardRevealedMap?: Map<string, boolean>,
 ): PlayerState[] => {
   if (!players) {
     return [];
@@ -88,8 +88,6 @@ const normalizePlayers = (
       ? (entry.character as PlayerState['character'])
       : (['DEALER', 'BULL', 'BEAR', 'WHALE', 'ROOKIE'] as PlayerState['character'][])[index % 5];
     const id = sanitizeInput(String(entry.id ?? `player-${index}`));
-    const cardValue = cardValues?.get(id) ?? (typeof entry.cardValue === 'number' ? Number(entry.cardValue) : undefined);
-    const cardRevealed = cardRevealedMap?.get(id);
 
     return {
       id,
@@ -98,8 +96,7 @@ const normalizePlayers = (
       character,
       isBot: Boolean(entry.isBot),
       isWinner: Boolean(entry.isWinner),
-      cardValue,
-      cardRevealed,
+      cardValue: typeof entry.cardValue === 'number' ? Number(entry.cardValue) : undefined,
     } satisfies PlayerState;
   });
 };
@@ -107,16 +104,6 @@ const normalizePlayers = (
 const normalizeRoom = (payload: any): NormalizedRoom | null => {
   if (!payload) return null;
   const hostName = sanitizeInput(String(payload.hostName ?? 'Dealer'));
-  const cardValues = new Map<string, number>();
-  const cardRevealed = new Map<string, boolean>();
-  if (Array.isArray(payload.gameState?.playerCards)) {
-    for (const entry of payload.gameState.playerCards) {
-      if (entry?.id) {
-        cardValues.set(String(entry.id), Number(entry.value ?? entry.cardValue ?? 0));
-        cardRevealed.set(String(entry.id), Boolean(entry.revealed));
-      }
-    }
-  }
   return {
     id: sanitizeInput(String(payload.id ?? 'room')),
     name: sanitizeInput(String(payload.name ?? 'Trading Table')),
@@ -124,27 +111,16 @@ const normalizeRoom = (payload: any): NormalizedRoom | null => {
     hostName,
     hostId: payload.hostId ? sanitizeInput(String(payload.hostId)) : undefined,
     maxPlayers: Number(payload.maxPlayers ?? 6),
-    players: normalizePlayers(payload.players, hostName, cardValues, cardRevealed),
+    players: normalizePlayers(payload.players, hostName),
     updatedAt: Number(payload.updatedAt ?? Date.now()),
     roundNumber: Number(payload.roundNumber ?? payload.gameState?.roundNumber ?? 0) || undefined,
-    trades: Array.isArray(payload.gameState?.trades)
-      ? (payload.gameState.trades as ServerTradeSummary[])
+    phaseEndsAt: payload.gameState?.phaseEndsAt
+      ? Number(payload.gameState.phaseEndsAt)
+      : payload.roundEndsAt
+      ? Number(payload.roundEndsAt)
       : undefined,
-    roundEndsAt: payload.roundEndsAt ? Number(payload.roundEndsAt) : undefined,
   };
 };
-
-const mapTradesToEvents = (trades: ServerTradeSummary[]): TradeEvent[] =>
-  trades.map((trade) => ({
-    id: trade.id,
-    timestamp: trade.timestamp,
-    player: trade.playerName ?? trade.playerId,
-    counterparty: trade.counterpartyName ?? trade.counterpartyId,
-    quantity: trade.quantity,
-    price: trade.price,
-    value: trade.value,
-    type: trade.type,
-  }));
 
 export function useRoomState(roomId?: string) {
   const { currentUser } = useAuth();
@@ -152,24 +128,72 @@ export function useRoomState(roomId?: string) {
   const [status, setStatus] = useState<HookStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
+
   const setPlayers = useGameStore((state) => state.setPlayers);
   const setGamePhase = useGameStore((state) => state.setGamePhase);
   const setRoundNumber = useGameStore((state) => state.setRoundNumber);
-  const setTrades = useGameStore((state) => state.setTrades);
+  const setTradingPhase = useGameStore((state) => state.setTradingPhase);
+  const setOrders = useGameStore((state) => state.setOrders);
+  const setMatchedTrades = useGameStore((state) => state.setMatchedTrades);
+  const setRevealedCommunityCards = useGameStore((state) => state.setRevealedCommunityCards);
+  const setPhaseEndsAt = useGameStore((state) => state.setPhaseEndsAt);
+  const setMyCard = useGameStore((state) => state.setMyCard);
+  const setSettlement = useGameStore((state) => state.setSettlement);
 
   const updateRoomState = useCallback((payload: any) => {
     const normalized = normalizeRoom(payload);
     if (!normalized) return;
+
     setRoom(normalized);
     setPlayers(normalized.players);
     setGamePhase(mapStatusToPhase(normalized.status));
+    setTradingPhase(mapStatusToTradingPhase(normalized.status));
+
     if (normalized.roundNumber) {
       setRoundNumber(normalized.roundNumber);
     }
-    if (normalized.trades) {
-      setTrades(mapTradesToEvents(normalized.trades));
+    if (normalized.phaseEndsAt) {
+      setPhaseEndsAt(normalized.phaseEndsAt);
     }
-  }, [setPlayers, setGamePhase, setRoundNumber, setTrades]);
+
+    // Extract order book data from gameState
+    const gs = payload?.gameState;
+    if (gs) {
+      if (Array.isArray(gs.orders)) {
+        setOrders(gs.orders as Order[]);
+      }
+      if (Array.isArray(gs.matchedTrades)) {
+        setMatchedTrades(gs.matchedTrades as MatchedTrade[]);
+      }
+      if (Array.isArray(gs.revealedCommunityCards)) {
+        setRevealedCommunityCards(gs.revealedCommunityCards as number[]);
+      }
+
+      // Find own card value from playerCards
+      if (Array.isArray(gs.playerCards) && currentUser) {
+        const myEntry = gs.playerCards.find(
+          (c: any) => c?.id === currentUser.uid
+        );
+        if (myEntry && typeof myEntry.value === 'number') {
+          setMyCard(myEntry.value);
+        } else {
+          setMyCard(null);
+        }
+      }
+
+      // Settlement data
+      if (gs.settlementTotal != null || gs.pnl != null) {
+        setSettlement(
+          gs.settlementTotal != null ? Number(gs.settlementTotal) : null,
+          gs.pnl ?? null,
+        );
+      }
+    }
+  }, [
+    currentUser, setPlayers, setGamePhase, setRoundNumber, setTradingPhase,
+    setOrders, setMatchedTrades, setRevealedCommunityCards, setPhaseEndsAt,
+    setMyCard, setSettlement,
+  ]);
 
   useEffect(() => {
     if (!roomId) {
