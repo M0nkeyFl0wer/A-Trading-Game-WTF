@@ -167,6 +167,9 @@ function decideTrade(
   }
 
   // -- Base randomness for variety -----------------------------------------
+  // NOTE: Math.random() is intentional here. These values drive bot personality
+  // jitter and decision-making, not security-critical operations like deck
+  // shuffling, ID generation, or room codes. Predictability is acceptable.
 
   const jitter = (Math.random() - 0.5) * 6;
   const finalPrice = Math.max(50, Math.round(basePrice + priceAdjustment + jitter));
@@ -244,6 +247,7 @@ class BotService {
     const timerKey = `${room.id}:${room.roundNumber}`;
 
     for (const bot of bots) {
+      // Math.random() is intentional: scheduling jitter is not security-sensitive
       const delay = BOT_MIN_DELAY + Math.random() * (BOT_MAX_DELAY - BOT_MIN_DELAY);
       const timer = setTimeout(() => {
         this.executeBotTrade(room.id, bot, room).catch((err) => {
@@ -316,6 +320,7 @@ class BotService {
 
       // -- Record the observation in the knowledge graph --------------------
 
+      // Math.random() is intentional: counterparty selection for KG logging is not security-sensitive
       const counterparty = opponents[Math.floor(Math.random() * opponents.length)];
       if (counterparty) {
         const observation: TradeObservation = {

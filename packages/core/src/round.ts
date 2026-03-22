@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto';
 import type { DeckValue } from '@trading-game/shared';
 import type { Card, Table } from './types';
 import { OrderBook } from './orderBook';
@@ -70,10 +71,10 @@ export class Round {
       throw new Error(`Cannot deal in phase "${this.phase}"`);
     }
 
-    // Fisher-Yates shuffle
+    // Fisher-Yates shuffle (cryptographically secure)
     const d = this.deck;
     for (let i = d.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = randomInt(0, i + 1);
       [d[i], d[j]] = [d[j], d[i]];
     }
 

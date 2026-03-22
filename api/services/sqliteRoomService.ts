@@ -1,3 +1,4 @@
+import { randomInt, randomUUID } from 'crypto';
 import type Database from 'better-sqlite3';
 import { getDatabase } from './database';
 import { emitRoomUpdated, emitRoomRemoved } from '../lib/roomEvents';
@@ -5,7 +6,7 @@ import { gameEngine, type RoomGameState, type TradeSummary } from './gameEngine'
 import type { RoomRecord, RoomPlayer, RoomStatus } from './roomService';
 import { RoomServiceError } from './roomService';
 
-const createRoomId = () => `room_${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+const createRoomId = () => `room_${randomUUID().slice(0, 8).toUpperCase()}`;
 
 const DEFAULT_BALANCE = 1_000;
 const CHARACTER_SEQUENCE = ['DEALER', 'BULL', 'BEAR', 'WHALE', 'ROOKIE'];
@@ -313,9 +314,9 @@ export class SqliteRoomService {
   async addBot(roomId: string, requesterId: string, character?: string): Promise<RoomRecord> {
     const validCharacter = character && BOT_CHARACTERS.includes(character as any)
       ? character
-      : BOT_CHARACTERS[Math.floor(Math.random() * BOT_CHARACTERS.length)];
+      : BOT_CHARACTERS[randomInt(0, BOT_CHARACTERS.length)];
 
-    const botId = `bot_${validCharacter.toLowerCase()}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const botId = `bot_${validCharacter.toLowerCase()}_${randomUUID().slice(0, 12)}`;
     const botName = BOT_NAMES[validCharacter] || 'Bot Trader';
 
     const updated = this.db.transaction(() => {
@@ -412,10 +413,10 @@ export class SqliteRoomService {
         throw new RoomServiceError(404, 'Player not found in room');
       }
       const counterparties = room.players.filter((p) => p.id !== playerId);
-      const counterparty = counterparties[Math.floor(Math.random() * counterparties.length)] || player;
+      const counterparty = counterparties[randomInt(0, counterparties.length)] || player;
 
       const summary: TradeSummary = {
-        id: `trade_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        id: `trade_${randomUUID()}`,
         playerId,
         playerName: player.name,
         counterpartyId: counterparty.id,

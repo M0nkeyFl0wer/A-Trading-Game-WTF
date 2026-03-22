@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import type { Firestore } from 'firebase-admin/firestore';
 import { getFirestoreInstance } from '../lib/firebaseAdmin';
 import { emitRoomUpdated, emitRoomRemoved } from '../lib/roomEvents';
@@ -38,7 +39,7 @@ export class RoomServiceError extends Error {
   }
 }
 
-const createRoomId = () => `room_${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+const createRoomId = () => `room_${randomUUID().slice(0, 8).toUpperCase()}`;
 
 const DEFAULT_BALANCE = 1_000;
 const CHARACTER_SEQUENCE = ['DEALER', 'BULL', 'BEAR', 'WHALE', 'ROOKIE'];
