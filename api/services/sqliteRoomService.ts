@@ -410,6 +410,34 @@ export class SqliteRoomService {
         throw new RoomServiceError(404, 'Player not found in room');
       }
 
+      // Margin enforcement: ensure player can cover worst-case loss
+      // For a BID at price P, qty Q: max loss = P * Q (settlement = 0)
+      // For an ASK at price P, qty Q: max loss = (MAX_SETTLEMENT - P) * Q (settlement = max)
+      const MAX_SETTLEMENT = 130; // theoretical max: entire deck sum
+
+      const maxLoss = order.side === 'bid'
+        ? order.price * order.quantity
+        : (MAX_SETTLEMENT - order.price) * order.quantity;
+
+      const existingOrders = (room.gameState?.orders ?? []).filter(
+        (o) => o.playerId === playerId && (o.status === 'open' || o.status === 'partial'),
+      );
+      const lockedMargin = existingOrders.reduce((sum, o) => {
+        const remaining = o.quantity - o.filledQuantity;
+        if (o.side === 'bid') {
+          return sum + o.price * remaining;
+        } else {
+          return sum + (MAX_SETTLEMENT - o.price) * remaining;
+        }
+      }, 0);
+
+      const availableBalance = player.balance - lockedMargin;
+      if (maxLoss > availableBalance) {
+        throw new RoomServiceError(400,
+          `Insufficient margin. Required: $${maxLoss.toFixed(2)}, Available: $${availableBalance.toFixed(2)}`,
+        );
+      }
+
       // Anti-spoofing: max 5 open orders per player
       if (room.gameState) {
         const openCount = room.gameState.orders.filter(

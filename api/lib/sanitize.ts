@@ -6,6 +6,7 @@ import type { RoomGameState } from '../services/gameEngine';
  * - Only show the player's own card value (others get value: null)
  * - Only show revealedCommunityCards (strip raw communityCards)
  * - Anonymize other players' orders (strip playerId/playerName)
+ * - Anonymize matched trades (only reveal the requesting player's identity)
  */
 export function sanitizeRoomForPlayer(room: RoomRecord, playerId: string | undefined): any {
   if (!room.gameState) return room;
@@ -32,6 +33,14 @@ export function sanitizeRoomForPlayer(room: RoomRecord, playerId: string | undef
         playerId: order.playerId === playerId ? order.playerId : undefined,
         playerName: order.playerId === playerId ? order.playerName : undefined,
         isMine: order.playerId === playerId,
+      })),
+      // Anonymize matched trades: only reveal identity for the requesting player
+      matchedTrades: gs.matchedTrades?.map(trade => ({
+        ...trade,
+        buyerId: trade.buyerId === playerId ? trade.buyerId : undefined,
+        buyerName: trade.buyerId === playerId ? trade.buyerName : 'Another trader',
+        sellerId: trade.sellerId === playerId ? trade.sellerId : undefined,
+        sellerName: trade.sellerId === playerId ? trade.sellerName : 'Another trader',
       })),
     },
   };
