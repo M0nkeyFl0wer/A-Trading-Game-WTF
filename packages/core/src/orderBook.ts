@@ -9,8 +9,8 @@
  *   4. Self-trade prevention: a player cannot match against their own order.
  */
 
-// TradingPhase is not yet in @trading-game/shared; define locally.
-export type TradingPhase = 'pre-open' | 'open' | 'closing' | 'closed';
+import type { TradingPhase } from '@trading-game/shared';
+export type { TradingPhase };
 
 export interface Order {
   id: string;
