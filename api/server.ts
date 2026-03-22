@@ -12,6 +12,7 @@ import { metrics } from './lib/metrics';
 import { getDatabase, closeDatabase } from './services/database';
 import { botService } from './services/botService';
 import { commentatorService } from './services/commentatorService';
+import './services/auditService';  // auto-subscribes to game events on import
 
 import rootRoutes from './routes/index';
 import authRoutes from './routes/auth';
@@ -57,7 +58,7 @@ const io = new SocketIOServer(server, {
 });
 
 // Initialize audit service (subscribes to game events, restores hash chain)
-auditService.init();
+// auditService auto-initializes on import
 
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '10mb' }));
