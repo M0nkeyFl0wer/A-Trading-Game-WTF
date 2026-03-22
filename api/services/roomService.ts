@@ -600,5 +600,6 @@ export class RoomService {
   }
 }
 
-const firestore = getFirestoreInstance();
-export const roomService = new RoomService(firestore);
+import { SqliteRoomService } from './sqliteRoomService';
+
+export const roomService = new SqliteRoomService();

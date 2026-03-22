@@ -6,6 +6,7 @@ import { applySecurityHeaders, handlePreflight } from './middleware/securityHead
 import { authenticateRequest, attachOptionalUser } from './middleware/authenticate';
 import { getAuthInstance } from './lib/firebaseAdmin';
 import { roomEvents } from './lib/roomEvents';
+import { sanitizeRoomForPlayer } from './lib/sanitize';
 import { logger } from './lib/logger';
 import { metrics } from './lib/metrics';
 import { getDatabase, closeDatabase } from './services/database';
@@ -158,8 +159,31 @@ io.on('connection', (socket) => {
   });
 });
 
-roomEvents.on('room:updated', (room) => {
-  io.emit('rooms:update', room);
+roomEvents.on('room:updated', (room: any) => {
+  // Send sanitized state to each socket in the room
+  const roomSockets = io.sockets.adapter.rooms.get(room.id);
+  if (roomSockets) {
+    for (const socketId of roomSockets) {
+      const socket = io.sockets.sockets.get(socketId);
+      if (socket) {
+        const playerId = socket.data.user?.id;
+        socket.emit('rooms:update', sanitizeRoomForPlayer(room, playerId));
+      }
+    }
+  }
+
+  // Also send a lobby-safe version to everyone (no game state, just room metadata)
+  const lobbyView = {
+    id: room.id,
+    name: room.name,
+    status: room.status,
+    hostName: room.hostName,
+    maxPlayers: room.maxPlayers,
+    players: room.players?.map((p: any) => ({ id: p.id, name: p.name, character: p.character, isBot: p.isBot })),
+    updatedAt: room.updatedAt,
+    roundNumber: room.roundNumber,
+  };
+  io.emit('rooms:lobby-update', lobbyView);
 });
 
 roomEvents.on('room:removed', (payload) => {

@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto';
 import { OrderBook } from '@trading-game/core';
 import {
   DEFAULT_DECK,
@@ -49,7 +50,7 @@ export interface GameResult {
 function shuffleDeck(deck: DeckValue[]): DeckValue[] {
   const d = [...deck];
   for (let i = d.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = randomInt(0, i + 1);
     [d[i], d[j]] = [d[j], d[i]];
   }
   return d;

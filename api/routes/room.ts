@@ -3,6 +3,7 @@ import { sanitizeInput } from '@trading-game/shared';
 import type { CharacterType } from '@trading-game/shared';
 import { roomService, RoomServiceError } from '../services/roomService';
 import { botService } from '../services/botService';
+import { sanitizeRoomForPlayer } from '../lib/sanitize';
 
 const router: Router = Router();
 
@@ -275,7 +276,8 @@ router.get('/:roomId', async (req: Request, res: Response) => {
   }
   try {
     const room = await roomService.getRoom(roomId);
-    return res.status(200).json(room);
+    const sanitized = sanitizeRoomForPlayer(room, req.user?.id);
+    return res.status(200).json(sanitized);
   } catch (error) {
     return handleRoomError(error, res);
   }
