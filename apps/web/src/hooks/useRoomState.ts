@@ -139,6 +139,7 @@ export function useRoomState(roomId?: string) {
   const setPhaseEndsAt = useGameStore((state) => state.setPhaseEndsAt);
   const setMyCard = useGameStore((state) => state.setMyCard);
   const setSettlement = useGameStore((state) => state.setSettlement);
+  const setCommentary = useGameStore((state) => state.setCommentary);
 
   const updateRoomState = useCallback((payload: any) => {
     const normalized = normalizeRoom(payload);
@@ -189,10 +190,15 @@ export function useRoomState(roomId?: string) {
         );
       }
     }
+
+    // Extract commentary from the payload (injected by the server)
+    if (Array.isArray(payload?.commentary) && payload.commentary.length > 0) {
+      setCommentary(payload.commentary);
+    }
   }, [
     currentUser, setPlayers, setGamePhase, setRoundNumber, setTradingPhase,
     setOrders, setMatchedTrades, setRevealedCommunityCards, setPhaseEndsAt,
-    setMyCard, setSettlement,
+    setMyCard, setSettlement, setCommentary,
   ]);
 
   useEffect(() => {
