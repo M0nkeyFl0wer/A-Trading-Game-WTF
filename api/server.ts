@@ -9,13 +9,9 @@ import { roomEvents } from './lib/roomEvents';
 import { sanitizeRoomForPlayer } from './lib/sanitize';
 import { logger } from './lib/logger';
 import { metrics } from './lib/metrics';
-<<<<<<< HEAD
 import { getDatabase, closeDatabase } from './services/database';
 import { botService } from './services/botService';
-=======
-import { auditService } from './services/auditService';
-import { closeDatabase } from './services/database';
->>>>>>> worktree-agent-ae062c60
+import { commentatorService } from './services/commentatorService';
 
 import rootRoutes from './routes/index';
 import authRoutes from './routes/auth';
@@ -168,6 +164,9 @@ io.on('connection', (socket) => {
 });
 
 roomEvents.on('room:updated', (room: any) => {
+  // Generate commentary for this state transition (before sanitizing)
+  const commentary = commentatorService.generateCommentary(room);
+
   // Send sanitized state to each socket in the room
   const roomSockets = io.sockets.adapter.rooms.get(room.id);
   if (roomSockets) {
@@ -175,7 +174,12 @@ roomEvents.on('room:updated', (room: any) => {
       const socket = io.sockets.sockets.get(socketId);
       if (socket) {
         const playerId = socket.data.user?.id;
-        socket.emit('rooms:update', sanitizeRoomForPlayer(room, playerId));
+        const sanitized = sanitizeRoomForPlayer(room, playerId);
+        // Attach commentary so clients can speak it
+        if (commentary.length > 0) {
+          sanitized.commentary = commentary;
+        }
+        socket.emit('rooms:update', sanitized);
       }
     }
   }

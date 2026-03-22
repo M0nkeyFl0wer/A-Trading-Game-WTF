@@ -3,6 +3,12 @@ import type { Order, MatchedTrade, TradingPhase } from '@trading-game/shared';
 import type { CharacterType } from './lib/characterVisuals';
 import { voiceService } from './lib/elevenlabs';
 
+export interface Commentary {
+  text: string;
+  priority: 'low' | 'medium' | 'high';
+  character: 'DEALER';
+}
+
 export type GamePhase = 'idle' | 'waiting' | 'starting' | 'playing' | 'finished';
 
 export interface PlayerState {
@@ -39,6 +45,7 @@ interface GameState {
   myCard: number | null;
   settlementTotal: number | null;
   pnl: Record<string, number> | null;
+  commentary: Commentary[];
 
   // Voice and character state
   character: CharacterType;
@@ -60,6 +67,7 @@ interface GameState {
   setPhaseEndsAt: (ts: number | null) => void;
   setMyCard: (value: number | null) => void;
   setSettlement: (total: number | null, pnl: Record<string, number> | null) => void;
+  setCommentary: (comments: Commentary[]) => void;
 
   // Voice actions
   setCharacter: (character: CharacterType) => void;
@@ -94,6 +102,7 @@ export const useGameStore = create<GameState>((set) => {
     myCard: null,
     settlementTotal: null,
     pnl: null,
+    commentary: [],
 
     character: 'DEALER',
     isVoiceEnabled: true,
@@ -111,6 +120,7 @@ export const useGameStore = create<GameState>((set) => {
       myCard: null,
       settlementTotal: null,
       pnl: null,
+      commentary: [],
       players: defaultPlayers.map(player => ({ ...player })),
     }),
 
@@ -127,6 +137,7 @@ export const useGameStore = create<GameState>((set) => {
     setPhaseEndsAt: (ts) => set({ phaseEndsAt: ts }),
     setMyCard: (value) => set({ myCard: value }),
     setSettlement: (total, pnl) => set({ settlementTotal: total, pnl }),
+    setCommentary: (comments) => set({ commentary: comments }),
 
     setCharacter: (character) => set({ character }),
     setVoiceEnabled: (enabled) => set({ isVoiceEnabled: enabled }),

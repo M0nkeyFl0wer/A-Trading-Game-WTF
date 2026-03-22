@@ -1,5 +1,5 @@
 import { useParams, Link } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import OrderForm from '../ui/OrderForm';
 import OrderBookDisplay from '../ui/OrderBookDisplay';
 import PhaseIndicator from '../ui/PhaseIndicator';
@@ -11,8 +11,10 @@ import ConnectWalletButton from '../ui/ConnectWalletButton';
 import VoiceControls from '../ui/VoiceControls';
 import { useGameVoice } from '../hooks/useGameVoice';
 import { useGameStore } from '../store';
+import type { Commentary } from '../store';
 import { useRoomState } from '../hooks/useRoomState';
 import { useAuth } from '../contexts/AuthContext';
+import { voiceService } from '../lib/elevenlabs';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
@@ -50,6 +52,24 @@ export default function TablePage() {
       playCharacterReaction('big_win');
     }
   }, [matchedTrades, playCharacterReaction]);
+
+  // Speak the highest-priority commentary line from the Dealer
+  const commentary = useGameStore((state) => state.commentary);
+  const lastSpokenRef = useRef('');
+  useEffect(() => {
+    if (!voiceEnabled || !commentary?.length) return;
+    // Pick the highest priority comment
+    const priorityOrder: Record<string, number> = { high: 3, medium: 2, low: 1 };
+    const sorted = [...commentary].sort(
+      (a, b) => (priorityOrder[b.priority] ?? 0) - (priorityOrder[a.priority] ?? 0),
+    );
+    const best = sorted[0];
+    if (!best || best.text === lastSpokenRef.current) return;
+    lastSpokenRef.current = best.text;
+    voiceService.playSpeech(best.text).catch((err) => {
+      console.error('Commentary voice error:', err);
+    });
+  }, [commentary, voiceEnabled]);
 
   const isTradingActive = useMemo(
     () => ['blind', 'flop', 'turn'].includes(room?.status ?? ''),
