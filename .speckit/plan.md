@@ -98,3 +98,41 @@ T-013, T-014, T-017, T-018
 
 **Final integration:**
 T-019 (TablePage), T-032 (cleanup)
+
+---
+
+## Phase 7: Topological Compliance Verification (P2)
+
+Use algebraic topology (persistent homology, simplicial complexes) over game state data to detect structural violations of game rules.
+
+| ID | Task | Deps | Complexity | Parallel |
+|----|------|------|-----------|----------|
+| T-033 | **Trade graph simplicial complex builder** — After each round, construct a simplicial complex from the trade graph (players=vertices, trades=edges, multi-party cycles=higher simplices). Store in SQLite alongside audit log. | T-026 | M | Yes |
+| T-034 | **Homology computation module** — Python sidecar using ripser/giotto-tda. Compute Betti numbers (B0=connected components, B1=cycles) of the trade complex. Expose via local HTTP or subprocess call. | T-033 | L | No |
+| T-035 | **Constitutional invariants as topological rules** — Encode game rules: B1=0 (no collusion cycles), information filtration is monotonic (player behavior doesn't correlate with unrevealed cards), zero-sum verification via chain complex boundary operator. | T-034 | L | No |
+| T-036 | **Information flow filtration** — Model each player's information state as a filtered simplicial complex across phases. Detect if trading behavior shows response to information not yet available (orders correlated with hidden community cards = filtration break). | T-034 | L | Parallel w/ T-035 |
+| T-037 | **Compliance dashboard** — API endpoint + frontend panel showing per-round topological health: Betti numbers, filtration consistency score, flagged anomalies. Red/yellow/green status per round. | T-035 T-036 | M | No |
+
+### How it works
+
+```
+Round completes
+  → Audit log records all events (T-026)
+  → Build simplicial complex from trade graph (T-033)
+  → Compute persistent homology (T-034)
+  → Check constitutional invariants (T-035):
+      • B1 = 0? (no collusion rings)
+      • Filtration monotonic? (no info leakage)
+      • Σ(PnL) = 0? (zero-sum via boundary operator)
+  → Check information flow (T-036):
+      • Player order timing vs community card reveal
+      • Price correlation with hidden state
+  → Flag violations in compliance dashboard (T-037)
+```
+
+### Implementation notes
+
+- Python sidecar preferred (ripser, giotto-tda, gudhi are mature TDA libraries)
+- The KG tables (kg_entities, kg_edges) already model the graph — can compute complexes directly
+- Light enough to run post-round (not real-time) — ~100ms for 5-player trade graphs
+- Could also apply persistent homology to price time series per phase to detect manipulation patterns
