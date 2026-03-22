@@ -64,7 +64,7 @@ function revealedCardsForPhase(
 
   const config = PHASE_SEQUENCE.find((p) => p.phase === phase);
   if (!config) return [];
-  return communityCards.slice(0, config.revealedCards);
+  return communityCards.slice(0, config.communityCardsRevealed);
 }
 
 // ---------------------------------------------------------------------------
@@ -167,24 +167,21 @@ export class GameEngine {
     // Reconstruct the order book from persisted state
     const book = OrderBook.fromState(gs.orders, gs.matchedTrades);
 
-    const order: Order = {
-      id: `ord_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    const phase = gs.phase as TradingPhase;
+
+    const { order, trades: newTrades } = book.submitOrder({
       playerId,
       playerName,
       side: orderInput.side,
       price: orderInput.price,
       quantity: orderInput.quantity,
-      remainingQty: orderInput.quantity,
-      status: 'open',
       timestamp: Date.now(),
-    };
+      phase,
+    });
 
-    const newTrades = book.submit(order);
-
-    // Merge the new order into orders list, and update any resting orders
-    // that got filled/partially filled during matching.
-    const allOrders = this.mergeOrders(gs.orders, order, book);
-    const allTrades = [...gs.matchedTrades, ...newTrades];
+    // Rebuild the full orders and trades lists from the book
+    const allOrders = book.getAllOrders();
+    const allTrades = book.getMatchedTrades();
 
     const now = Date.now();
     const gameState: RoomGameState = {
@@ -205,23 +202,14 @@ export class GameEngine {
     if (!gs) throw new Error('no active game state');
 
     const book = OrderBook.fromState(gs.orders, gs.matchedTrades);
-    const cancelled = book.cancel(orderId);
+    const cancelled = book.cancelOrder(orderId);
 
     if (!cancelled) {
-      // If not found on the book, just mark it in our list
-      const idx = gs.orders.findIndex((o) => o.id === orderId && o.status === 'open');
-      if (idx === -1) throw new Error('order not found or already settled');
-      gs.orders[idx].status = 'cancelled';
-      gs.orders[idx].remainingQty = 0;
+      throw new Error('order not found or already settled');
     }
 
-    // Rebuild the full orders list reflecting cancellation
-    const updatedOrders = gs.orders.map((o) => {
-      if (o.id === orderId) {
-        return { ...o, status: 'cancelled' as const, remainingQty: 0 };
-      }
-      return o;
-    });
+    // Rebuild the full orders list from the book
+    const updatedOrders = book.getAllOrders();
 
     return {
       ...gs,
@@ -305,40 +293,6 @@ export class GameEngine {
     };
   }
 
-  // ---------------------------------------------------------------------------
-  // Private helpers
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Merge the newly submitted order into the canonical orders list, and
-   * update any existing orders that were modified by matching.
-   */
-  private mergeOrders(existing: Order[], newOrder: Order, book: OrderBook): Order[] {
-    const restingMap = new Map<string, Order>();
-    for (const o of book.getRestingOrders()) {
-      restingMap.set(o.id, o);
-    }
-
-    // Update existing orders whose status/remainingQty changed
-    const updated = existing.map((o) => {
-      const resting = restingMap.get(o.id);
-      if (resting) {
-        return { ...o, remainingQty: resting.remainingQty, status: resting.status };
-      }
-      // If it was resting before but is no longer, it got filled
-      if (o.status === 'open' || o.status === 'partial') {
-        // Check if it's still in the book
-        if (!restingMap.has(o.id)) {
-          return { ...o, remainingQty: 0, status: 'filled' as const };
-        }
-      }
-      return o;
-    });
-
-    // Add the new order
-    updated.push(newOrder);
-    return updated;
-  }
 }
 
 export const gameEngine = new GameEngine();
