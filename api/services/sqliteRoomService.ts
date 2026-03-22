@@ -410,6 +410,16 @@ export class SqliteRoomService {
         throw new RoomServiceError(404, 'Player not found in room');
       }
 
+      // Anti-spoofing: max 5 open orders per player
+      if (room.gameState) {
+        const openCount = room.gameState.orders.filter(
+          (o) => o.playerId === playerId && (o.status === 'open' || o.status === 'partial'),
+        ).length;
+        if (openCount >= 5) {
+          throw new RoomServiceError(400, 'Maximum 5 open orders per player');
+        }
+      }
+
       const { gameState } = gameEngine.submitOrder(room, playerId, player.name, order);
       const updatedRoom: RoomRecord = {
         ...room,
@@ -447,6 +457,11 @@ export class SqliteRoomService {
       }
       if (orderToCancel.playerId !== playerId) {
         throw new RoomServiceError(403, "Cannot cancel another player's order");
+      }
+
+      // Anti-spoofing: minimum 2-second resting time before cancel
+      if (Date.now() - orderToCancel.timestamp < 2000) {
+        throw new RoomServiceError(400, 'Orders must rest at least 2 seconds before cancellation');
       }
 
       const gameState = gameEngine.cancelOrder(room, orderId);
