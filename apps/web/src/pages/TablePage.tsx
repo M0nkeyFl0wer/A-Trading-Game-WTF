@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import QuoteModal from '../ui/QuoteModal';
 import TradeTape from '../ui/TradeTape';
@@ -177,6 +177,9 @@ export default function TablePage() {
           <p className="page__subtitle">Round {roundNumber || 1} · {roundPhaseLabel}</p>
         </div>
         <div className="page__actions">
+          <Link to="/" className="button button--ghost">
+            ← Back to Lobby
+          </Link>
           <ConnectWalletButton />
         </div>
       </header>
@@ -214,19 +217,62 @@ export default function TablePage() {
             {typeof myCard?.cardValue === 'number' && isTradingActive && (
               <div
                 style={{
-                  margin: '12px 0',
-                  padding: '10px 16px',
-                  background: 'rgba(59,130,246,0.2)',
-                  border: '1px solid rgba(59,130,246,0.5)',
-                  borderRadius: 8,
-                  fontSize: '1.1rem',
-                  fontWeight: 600,
+                  margin: '16px 0',
+                  padding: '20px 24px',
+                  background: 'linear-gradient(135deg, rgba(59,130,246,0.3), rgba(129,140,248,0.25))',
+                  border: '2px solid rgba(59,130,246,0.7)',
+                  borderRadius: 12,
+                  fontSize: '2rem',
+                  fontWeight: 800,
                   textAlign: 'center',
+                  letterSpacing: '0.02em',
+                  boxShadow: '0 0 20px rgba(59,130,246,0.25), inset 0 1px 0 rgba(255,255,255,0.1)',
+                  animation: 'card-pulse 2s ease-in-out infinite',
                 }}
                 role="status"
                 aria-label={`Your card value is ${myCard.cardValue}`}
               >
-                🃏 Your card: <span style={{ fontSize: '1.3rem' }}>{myCard.cardValue}</span>
+                🃏 Your card: <span style={{ fontSize: '2.5rem', color: '#60a5fa' }}>{myCard.cardValue}</span>
+                <style>{`@keyframes card-pulse { 0%, 100% { box-shadow: 0 0 20px rgba(59,130,246,0.25), inset 0 1px 0 rgba(255,255,255,0.1); } 50% { box-shadow: 0 0 30px rgba(59,130,246,0.4), inset 0 1px 0 rgba(255,255,255,0.15); } }`}</style>
+              </div>
+            )}
+            {gamePhase === 'finished' && players.length > 0 && (
+              <div
+                style={{
+                  margin: '16px 0',
+                  padding: '16px 20px',
+                  background: 'rgba(129,140,248,0.12)',
+                  border: '1px solid rgba(129,140,248,0.3)',
+                  borderRadius: 10,
+                }}
+              >
+                <h3 style={{ margin: '0 0 12px', fontSize: '1.1rem' }}>Round Results</h3>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 8 }}>
+                  {players.map((p) => (
+                    <li
+                      key={p.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        background: p.isWinner ? 'rgba(52,211,153,0.15)' : 'transparent',
+                        fontWeight: p.isWinner ? 700 : 400,
+                      }}
+                    >
+                      <span>
+                        {p.isWinner ? '👑 ' : ''}{p.name}
+                        {typeof p.cardValue === 'number' && (
+                          <span style={{ marginLeft: 8, opacity: 0.7 }}>Card: {p.cardValue}</span>
+                        )}
+                      </span>
+                      <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                        Balance: ${p.balance.toLocaleString()}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
             <TimerBar seconds={timeLeft} label={isTradingActive ? 'Trading window' : 'Waiting for host'} />
