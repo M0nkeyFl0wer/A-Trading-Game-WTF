@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { sanitizeInput } from '@trading-game/shared';
 import { roomService, RoomServiceError } from '../services/roomService';
+import { tradingLimiter } from '../middleware/rateLimiting';
 
 const router: Router = Router();
 
@@ -20,16 +21,23 @@ const parseMaxPlayers = (value: unknown): number => {
   return num;
 };
 
+const MAX_PRICE = 200;
+const MIN_PRICE = -50;
+const MAX_QUANTITY = 10;
+
 const parseTradePayload = (body: any) => {
   const price = Number(body?.price);
   const quantity = Number(body?.quantity ?? 1);
   const side = body?.side === 'sell' ? 'sell' : 'buy';
 
-  if (!Number.isFinite(price) || price <= 0) {
-    throw new RoomServiceError(400, 'Price must be greater than zero');
+  if (!Number.isFinite(price) || price < MIN_PRICE || price > MAX_PRICE) {
+    throw new RoomServiceError(400, `Price must be between ${MIN_PRICE} and ${MAX_PRICE}`);
   }
-  if (!Number.isFinite(quantity) || quantity <= 0) {
-    throw new RoomServiceError(400, 'Quantity must be greater than zero');
+  if (!Number.isFinite(quantity) || quantity < 1 || quantity > MAX_QUANTITY || !Number.isInteger(quantity)) {
+    throw new RoomServiceError(400, `Quantity must be an integer between 1 and ${MAX_QUANTITY}`);
+  }
+  if (side !== 'buy' && side !== 'sell') {
+    throw new RoomServiceError(400, 'Side must be "buy" or "sell"');
   }
 
   return {
@@ -128,7 +136,7 @@ router.post('/leave/:roomId', async (req: Request, res: Response) => {
 });
 
 // Submit trade during active round
-router.post('/:roomId/trade', async (req: Request, res: Response) => {
+router.post('/:roomId/trade', tradingLimiter, async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
