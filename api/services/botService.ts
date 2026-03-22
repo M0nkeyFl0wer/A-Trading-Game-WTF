@@ -95,11 +95,24 @@ function decideTrade(
   opponents: RoomPlayer[],
   personality: PersonalityConfig,
   graphCtx: GraphContext | null,
+  cardValue?: number,
 ): BotTradeDecision {
   const basePrice = 100;
   let priceAdjustment = personality.priceBias;
   let buyProb = personality.buyProbability;
   let maxQty = personality.maxQuantity;
+
+  // -- Factor in private card information if available ----------------------
+  // High cards (above midpoint ~50) make buying more attractive since the
+  // settlement value is likely to be higher. Low cards favor selling.
+  if (cardValue && cardValue > 0) {
+    const cardMidpoint = 50;
+    const cardSignal = (cardValue - cardMidpoint) / cardMidpoint; // -1 to +1
+    // Shift buy probability toward buying for high cards, selling for low
+    buyProb = Math.max(0.05, Math.min(0.95, buyProb + cardSignal * 0.3));
+    // Adjust price: willing to pay more with a strong hand
+    priceAdjustment += cardSignal * 8;
+  }
 
   // -- Apply knowledge graph insights if available -------------------------
 
@@ -187,54 +200,36 @@ class BotService {
 
   /**
    * Add a bot player to a room. Only the host may do this.
+   * Delegates to roomService.addBot() which creates the player with isBot: true
+   * from the start, then seeds the knowledge graph entity.
    */
   async addBot(
     roomId: string,
     requesterId: string,
     character?: BotPersonality,
   ): Promise<RoomRecord> {
-    const room = await roomService.getRoom(roomId);
+    // roomService.addBot() handles all validation (host check, room full,
+    // status check) and creates the bot player with isBot: true atomically.
+    const updated = await roomService.addBot(roomId, requesterId, character);
 
-    if (room.hostId !== requesterId) {
-      throw new RoomServiceError(403, 'Only the host can add bots');
-    }
-    if (room.players.length >= room.maxPlayers) {
-      throw new RoomServiceError(400, 'Room is full');
-    }
-
-    // Pick a character not already used by another bot
-    const usedCharacters = new Set(
-      room.players.filter((p) => p.isBot).map((p) => p.character),
+    // Find the newly added bot to seed its KG entity
+    const addedBot = updated.players.find(
+      (p) => p.isBot && p.character === (character ?? p.character),
     );
-    const picked =
-      character && !usedCharacters.has(character)
-        ? character
-        : BOT_CHARACTERS.find((c) => !usedCharacters.has(c)) ?? BOT_CHARACTERS[0];
-
-    botCounter += 1;
-    const botId = `bot_${Date.now()}_${botCounter}`;
-
-    // Join via roomService so all validations apply
-    const updated = await roomService.joinRoom(roomId, {
-      id: botId,
-      name: BOT_NAMES[picked],
-    });
-
-    // Patch isBot flag and character on the newly added player
-    const patchedPlayers = updated.players.map((p) =>
-      p.id === botId ? { ...p, isBot: true, character: picked } : p,
-    );
-
-    // If the service supports updatePlayers, use it; otherwise we're fine
-    // since the bot will be tracked by its ID prefix
-    if (typeof (roomService as any).updatePlayers === 'function') {
-      await (roomService as any).updatePlayers(roomId, patchedPlayers);
+    if (addedBot) {
+      knowledgeGraph.ensurePlayerEntity(
+        addedBot.id,
+        addedBot.name,
+        true,
+        addedBot.character,
+      );
+      logger.info(
+        { roomId, botId: addedBot.id, character: addedBot.character },
+        'bot added to room',
+      );
     }
 
-    const patched = await roomService.getRoom(roomId);
-    knowledgeGraph.ensurePlayerEntity(botId, BOT_NAMES[picked], true, picked);
-    logger.info({ roomId, botId, character: picked }, 'bot added to room');
-    return patched;
+    return updated;
   }
 
   /**
@@ -293,9 +288,14 @@ class BotService {
       logger.warn({ err, botId: bot.id }, 'kg queries failed, using default personality');
     }
 
+    // -- Look up the bot's dealt card for informed trading -------------------
+
+    const botCard = roomSnapshot.gameState?.playerCards?.find((pc) => pc.id === bot.id);
+    const cardValue = botCard?.value ?? 0;
+
     // -- Make the decision -------------------------------------------------
 
-    const decision = decideTrade(bot, opponents, personality, graphCtx);
+    const decision = decideTrade(bot, opponents, personality, graphCtx, cardValue || undefined);
 
     // -- Submit the trade via roomService ----------------------------------
 

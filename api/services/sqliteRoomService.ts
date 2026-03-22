@@ -9,6 +9,13 @@ const createRoomId = () => `room_${Math.random().toString(36).slice(2, 8).toUppe
 
 const DEFAULT_BALANCE = 1_000;
 const CHARACTER_SEQUENCE = ['DEALER', 'BULL', 'BEAR', 'WHALE', 'ROOKIE'];
+const BOT_CHARACTERS = ['BULL', 'BEAR', 'WHALE', 'ROOKIE'] as const;
+const BOT_NAMES: Record<string, string> = {
+  BULL: 'Bull Runner',
+  BEAR: 'Bear Necessities',
+  WHALE: 'The Whale',
+  ROOKIE: 'Fresh Trader',
+};
 const TRADING_WINDOW_MS = 20_000;
 const NEXT_ROUND_DELAY_MS = 5_000;
 
@@ -303,6 +310,50 @@ export class SqliteRoomService {
     return updated;
   }
 
+  async addBot(roomId: string, requesterId: string, character?: string): Promise<RoomRecord> {
+    const validCharacter = character && BOT_CHARACTERS.includes(character as any)
+      ? character
+      : BOT_CHARACTERS[Math.floor(Math.random() * BOT_CHARACTERS.length)];
+
+    const botId = `bot_${validCharacter.toLowerCase()}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const botName = BOT_NAMES[validCharacter] || 'Bot Trader';
+
+    const updated = this.db.transaction(() => {
+      const room = this.loadRoom(roomId);
+
+      if (room.hostId !== requesterId) {
+        throw new RoomServiceError(403, 'Only the host can add bots');
+      }
+      if (room.status !== 'waiting' && room.status !== 'finished') {
+        throw new RoomServiceError(400, 'Can only add bots while waiting or between rounds');
+      }
+      if (room.players.length >= room.maxPlayers) {
+        throw new RoomServiceError(400, 'Room is full');
+      }
+
+      const botPlayer: RoomPlayer = {
+        id: botId,
+        name: botName,
+        joinedAt: Date.now(),
+        balance: DEFAULT_BALANCE,
+        character: validCharacter,
+        isBot: true,
+      };
+
+      const updatedRoom: RoomRecord = {
+        ...room,
+        players: [...room.players, botPlayer],
+        updatedAt: Date.now(),
+      };
+
+      this.persistRoom(updatedRoom);
+      return updatedRoom;
+    })();
+
+    emitRoomUpdated(updated);
+    return updated;
+  }
+
   async leaveRoom(roomId: string, playerId: string): Promise<RoomRecord> {
     const updated = this.db.transaction(() => {
       const room = this.loadRoom(roomId);
@@ -435,35 +486,31 @@ export class SqliteRoomService {
 
       const roundNumber = room.roundNumber + 1;
       const roundEndsAt = Date.now() + TRADING_WINDOW_MS;
-      const updatedRoom: RoomRecord = {
+      const prepared: RoomRecord = {
         ...room,
         status: 'playing',
         roundNumber,
         roundEndsAt,
         pendingTrades: [],
-        gameState: {
-          roundNumber,
-          phase: 'playing',
-          communityCards: [],
-          trades: [],
-          playerCards: [],
-          updatedAt: Date.now(),
-        },
         updatedAt: Date.now(),
       };
 
-      this.persistRoom(updatedRoom);
+      // Deal cards now so players see their hand during the trading window
+      const dealtState = gameEngine.dealRound(prepared);
+      prepared.gameState = dealtState;
+
+      this.persistRoom(prepared);
 
       // Record the round
       this.stmts.insertRound.run({
         room_id: roomId,
         round_number: roundNumber,
         phase: 'playing',
-        community_cards: null,
+        community_cards: JSON.stringify(dealtState.communityCards),
         started_at: Date.now(),
       });
 
-      return updatedRoom;
+      return prepared;
     })();
 
     emitRoomUpdated(prepared);
@@ -560,34 +607,30 @@ export class SqliteRoomService {
 
       const roundNumber = room.roundNumber + 1;
       const roundEndsAt = Date.now() + TRADING_WINDOW_MS;
-      const updatedRoom: RoomRecord = {
+      const prepared: RoomRecord = {
         ...room,
         status: 'playing',
         roundNumber,
         roundEndsAt,
         pendingTrades: [],
-        gameState: {
-          roundNumber,
-          phase: 'playing',
-          communityCards: [],
-          trades: [],
-          playerCards: [],
-          updatedAt: Date.now(),
-        },
         updatedAt: Date.now(),
       };
 
-      this.persistRoom(updatedRoom);
+      // Deal cards now so players see their hand during the trading window
+      const dealtState = gameEngine.dealRound(prepared);
+      prepared.gameState = dealtState;
+
+      this.persistRoom(prepared);
 
       this.stmts.insertRound.run({
         room_id: roomId,
         round_number: roundNumber,
         phase: 'playing',
-        community_cards: null,
+        community_cards: JSON.stringify(dealtState.communityCards),
         started_at: Date.now(),
       });
 
-      return updatedRoom;
+      return prepared;
     })();
 
     if (prepared) {
