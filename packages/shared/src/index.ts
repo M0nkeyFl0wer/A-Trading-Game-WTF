@@ -94,3 +94,49 @@ export interface BotResult {
 }
 
 export type Indicator = 'RSI' | 'MACD' | 'VWAP' | 'SMA' | 'EMA' | 'BOLLINGER';
+
+// ============================================================================
+// 3-Phase Order Book Trading Types
+// ============================================================================
+
+export type TradingPhase = 'blind' | 'flop' | 'turn';
+
+export const PHASE_SEQUENCE: TradingPhase[] = ['blind', 'flop', 'turn'];
+
+export const PHASE_DURATIONS: Record<TradingPhase, number> = {
+  blind: 30,
+  flop: 20,
+  turn: 20,
+};
+
+export interface Order {
+  id: string;
+  playerId: string;
+  playerName?: string;
+  side: 'bid' | 'ask';
+  price: number;
+  quantity: number;
+  remaining: number;
+  phase: TradingPhase;
+  timestamp: number;
+  status: 'open' | 'filled' | 'partial' | 'cancelled';
+  isMine?: boolean;
+}
+
+export interface MatchedTrade {
+  id: string;
+  buyerId: string;
+  buyerName?: string;
+  sellerId: string;
+  sellerName?: string;
+  price: number;
+  quantity: number;
+  phase: TradingPhase;
+  timestamp: number;
+}
+
+export interface PlayerCard {
+  id: string;
+  value: number | null;
+  revealed: boolean;
+}

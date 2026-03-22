@@ -1,75 +1,115 @@
 import { useMemo } from 'react';
-import { useGameStore, TradeEvent } from '../store';
+import type { MatchedTrade } from '@trading-game/shared';
+import { useGameStore } from '../store';
+import { useAuth } from '../contexts/AuthContext';
 
 const currency = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 });
 
-const shareFormatter = new Intl.NumberFormat('en-US', {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 2,
-});
+const PHASE_COLORS: Record<string, string> = {
+  blind: '#a78bfa',  // purple
+  flop: '#60a5fa',   // blue
+  turn: '#34d399',   // green
+};
 
-const tradeIcon = (trade: TradeEvent) => (trade.type === 'buy' ? '🟢' : '🔻');
+function phaseColor(phase: string): string {
+  return PHASE_COLORS[phase] ?? 'var(--text-secondary)';
+}
 
 export default function TradeTape() {
-  const trades = useGameStore(state => state.trades);
+  const matchedTrades = useGameStore((state) => state.matchedTrades);
+  const { currentUser } = useAuth();
+  const myId = currentUser?.uid;
 
   const orderedTrades = useMemo(
-    () => [...trades].sort((a, b) => b.timestamp - a.timestamp),
-    [trades]
+    () => [...matchedTrades].sort((a, b) => b.timestamp - a.timestamp),
+    [matchedTrades],
   );
 
   return (
     <section className="card" aria-labelledby="trade-tape-heading">
       <div className="section-heading">
-        <h3 id="trade-tape-heading">📈 Trade tape</h3>
-        <span>{trades.length === 0 ? 'No trades yet' : `${trades.length} total`}</span>
+        <h3 id="trade-tape-heading">Trade Tape</h3>
+        <span>{matchedTrades.length === 0 ? 'No trades yet' : `${matchedTrades.length} total`}</span>
       </div>
 
       {orderedTrades.length === 0 ? (
         <p className="card__subtitle">
-          Trades will stream here as players buy and sell shares during the round.
+          Matched trades will appear here as bids and asks cross in the order book.
         </p>
       ) : (
         <ol
           className="list-reset"
-          style={{ maxHeight: 220, overflowY: 'auto' }}
+          style={{ maxHeight: 260, overflowY: 'auto' }}
           aria-live="polite"
         >
-          {orderedTrades.map(trade => (
-            <li
-              key={trade.id}
-              className="card"
-              style={{
-                padding: '14px 16px',
-                display: 'grid',
-                gridTemplateColumns: 'auto 1fr auto',
-                alignItems: 'center',
-                gap: 12,
-                background: 'rgba(15,23,42,0.55)',
-              }}
-            >
-              <span style={{ fontSize: '1.4rem' }}>{tradeIcon(trade)}</span>
-              <div>
-                <strong style={{ display: 'block' }}>
-                  {trade.player} → {trade.counterparty}
-                </strong>
-                <small style={{ color: 'var(--text-secondary)' }}>
-                  {shareFormatter.format(trade.quantity)} @ {currency.format(trade.price)}
-                </small>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ fontWeight: 600 }}>
-                  {trade.type === 'buy' ? '+' : '-'}
-                  {currency.format(trade.value)}
-                </span>
-                <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
-                  {new Date(trade.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          {orderedTrades.map((trade) => {
+            const involvesMe = myId != null && (trade.buyerId === myId || trade.sellerId === myId);
+            return (
+              <li
+                key={trade.id}
+                style={{
+                  padding: '10px 14px',
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto',
+                  alignItems: 'center',
+                  gap: 8,
+                  background: involvesMe
+                    ? 'rgba(99, 102, 241, 0.1)'
+                    : 'rgba(15, 23, 42, 0.55)',
+                  borderRadius: 8,
+                  marginBottom: 4,
+                  borderLeft: `3px solid ${phaseColor(trade.phase)}`,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '0.85rem' }}>
+                    <strong style={{ color: trade.buyerId === myId ? '#818cf8' : 'inherit' }}>
+                      {trade.buyerName || trade.buyerId.slice(0, 8)}
+                    </strong>
+                    {' '}bought{' '}
+                    <strong>{trade.quantity}</strong>
+                    {' '}@ <strong>{currency.format(trade.price)}</strong>
+                    {' '}from{' '}
+                    <strong style={{ color: trade.sellerId === myId ? '#818cf8' : 'inherit' }}>
+                      {trade.sellerName || trade.sellerId.slice(0, 8)}
+                    </strong>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
+                    <span
+                      style={{
+                        fontSize: '0.7rem',
+                        padding: '1px 6px',
+                        borderRadius: 4,
+                        background: `${phaseColor(trade.phase)}22`,
+                        color: phaseColor(trade.phase),
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {trade.phase}
+                    </span>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>
+                      {new Date(trade.timestamp).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      })}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </li>
-          ))}
+                <div style={{
+                  textAlign: 'right',
+                  fontWeight: 600,
+                  fontSize: '0.9rem',
+                  fontFamily: 'monospace',
+                }}>
+                  {currency.format(trade.price * trade.quantity)}
+                </div>
+              </li>
+            );
+          })}
         </ol>
       )}
     </section>

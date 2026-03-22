@@ -16,48 +16,94 @@ describe('game store state', () => {
 
     expect(state.gamePhase).toBe('idle');
     expect(state.roundNumber).toBe(0);
-    expect(state.trades).toHaveLength(0);
+    expect(state.matchedTrades).toHaveLength(0);
+    expect(state.orders).toHaveLength(0);
     expect(state.players).toHaveLength(4);
     expect(state.players[0].name).toBe('You');
     expect(state.character).toBe('DEALER');
+    expect(state.tradingPhase).toBeNull();
+    expect(state.myCard).toBeNull();
+    expect(state.revealedCommunityCards).toHaveLength(0);
   });
 
-  test('startRound creates a round and moves to playing phase', () => {
-    const { startRound } = useGameStore.getState();
-    startRound();
+  test('setTradingPhase updates phase correctly', () => {
+    const { setTradingPhase } = useGameStore.getState();
+    setTradingPhase('blind');
+    expect(useGameStore.getState().tradingPhase).toBe('blind');
 
-    const state = useGameStore.getState();
-    expect(state.roundNumber).toBe(1);
-    expect(state.round).not.toBeNull();
-    expect(state.gamePhase).toBe('playing');
-    expect(state.trades).toHaveLength(0);
+    setTradingPhase('flop');
+    expect(useGameStore.getState().tradingPhase).toBe('flop');
+
+    setTradingPhase('finished');
+    expect(useGameStore.getState().tradingPhase).toBe('finished');
   });
 
-  test('recordTrade appends trade history and updates last action', () => {
-    const { recordTrade } = useGameStore.getState();
-    recordTrade({
-      player: 'You',
-      counterparty: 'Bot',
+  test('setOrders and setMatchedTrades update order book state', () => {
+    const { setOrders, setMatchedTrades } = useGameStore.getState();
+
+    setOrders([{
+      id: 'o1',
+      playerId: 'p1',
+      side: 'bid',
+      price: 60,
       quantity: 2,
-      price: 15,
-      type: 'buy',
-    });
+      remaining: 2,
+      phase: 'blind',
+      timestamp: Date.now(),
+      status: 'open',
+      isMine: true,
+    }]);
+    expect(useGameStore.getState().orders).toHaveLength(1);
 
-    const state = useGameStore.getState();
-    expect(state.trades).toHaveLength(1);
-    expect(state.trades[0].player).toBe('You');
-    expect(state.lastAction).toEqual({ type: 'trade', player: 'You', value: 30 });
+    setMatchedTrades([{
+      id: 't1',
+      buyerId: 'p1',
+      sellerId: 'p2',
+      price: 60,
+      quantity: 1,
+      phase: 'blind',
+      timestamp: Date.now(),
+    }]);
+    expect(useGameStore.getState().matchedTrades).toHaveLength(1);
   });
 
-  test('endRound flags winner and transitions to finished', () => {
-    const { startRound, endRound } = useGameStore.getState();
-    startRound();
-    endRound('player-you');
+  test('setSettlement updates settlement state', () => {
+    const { setSettlement } = useGameStore.getState();
+    setSettlement(183, { 'p1': 12.5, 'p2': -8.0 });
 
     const state = useGameStore.getState();
-    expect(state.gamePhase).toBe('finished');
-    const you = state.players.find(player => player.id === 'player-you');
-    expect(you?.isWinner).toBe(true);
+    expect(state.settlementTotal).toBe(183);
+    expect(state.pnl).toEqual({ 'p1': 12.5, 'p2': -8.0 });
+  });
+
+  test('setMyCard and setRevealedCommunityCards work correctly', () => {
+    const { setMyCard, setRevealedCommunityCards } = useGameStore.getState();
+
+    setMyCard(12);
+    expect(useGameStore.getState().myCard).toBe(12);
+
+    setRevealedCommunityCards([15, 7]);
+    expect(useGameStore.getState().revealedCommunityCards).toEqual([15, 7]);
+  });
+
+  test('resetGame clears all trading state', () => {
+    const store = useGameStore.getState();
+    store.setTradingPhase('flop');
+    store.setOrders([{ id: 'o1', playerId: 'p1', side: 'bid', price: 60, quantity: 1, remaining: 1, phase: 'blind', timestamp: Date.now(), status: 'open' }]);
+    store.setMyCard(10);
+    store.setSettlement(100, { 'p1': 5 });
+    store.setRevealedCommunityCards([5, 10, 15]);
+
+    store.resetGame();
+
+    const state = useGameStore.getState();
+    expect(state.tradingPhase).toBeNull();
+    expect(state.orders).toHaveLength(0);
+    expect(state.matchedTrades).toHaveLength(0);
+    expect(state.myCard).toBeNull();
+    expect(state.settlementTotal).toBeNull();
+    expect(state.pnl).toBeNull();
+    expect(state.revealedCommunityCards).toHaveLength(0);
   });
 
   test('voice controls toggle enabled flag and clamp volume', () => {

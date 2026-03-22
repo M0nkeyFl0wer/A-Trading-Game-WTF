@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { useEffect, useRef, useState } from 'react';
 import { sanitizeInput } from '../lib/security';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 

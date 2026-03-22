@@ -1,9 +1,12 @@
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
-import QuoteModal from '../ui/QuoteModal';
+import OrderForm from '../ui/OrderForm';
+import OrderBookDisplay from '../ui/OrderBookDisplay';
+import PhaseIndicator from '../ui/PhaseIndicator';
+import CommunityCards from '../ui/CommunityCards';
 import TradeTape from '../ui/TradeTape';
-import TimerBar from '../ui/TimerBar';
 import SeatAvatars from '../ui/SeatAvatars';
+import SettlementScreen from '../ui/SettlementScreen';
 import ConnectWalletButton from '../ui/ConnectWalletButton';
 import VoiceControls from '../ui/VoiceControls';
 import { useGameVoice } from '../hooks/useGameVoice';
@@ -20,8 +23,9 @@ export default function TablePage() {
   const selectedCharacter = useGameStore((state) => state.character);
   const roundNumber = useGameStore((state) => state.roundNumber);
   const gamePhase = useGameStore((state) => state.gamePhase);
-  const trades = useGameStore((state) => state.trades);
-  const [timeLeft, setTimeLeft] = useState(0);
+  const tradingPhase = useGameStore((state) => state.tradingPhase);
+  const myCard = useGameStore((state) => state.myCard);
+  const matchedTrades = useGameStore((state) => state.matchedTrades);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [startingRound, setStartingRound] = useState(false);
@@ -40,44 +44,32 @@ export default function TablePage() {
   }, [announceEvent, id, voiceEnabled]);
 
   useEffect(() => {
-    if (!trades?.length) return;
-    const latestTrade = trades[trades.length - 1];
-    if (latestTrade.value > 10) {
+    if (!matchedTrades?.length) return;
+    const latestTrade = matchedTrades[matchedTrades.length - 1];
+    if (latestTrade.price * latestTrade.quantity > 100) {
       playCharacterReaction('big_win');
-    } else if (latestTrade.value < -5) {
-      playCharacterReaction('big_loss');
     }
-  }, [trades, playCharacterReaction]);
+  }, [matchedTrades, playCharacterReaction]);
 
-  useEffect(() => {
-    if (!room?.roundEndsAt) {
-      setTimeLeft(0);
-      return;
-    }
-    const update = () => {
-      setTimeLeft(Math.max(0, Math.ceil((room.roundEndsAt! - Date.now()) / 1000)));
-    };
-    update();
-    const interval = setInterval(update, 1_000);
-    return () => clearInterval(interval);
-  }, [room?.roundEndsAt]);
+  const isTradingActive = useMemo(
+    () => ['blind', 'flop', 'turn'].includes(room?.status ?? ''),
+    [room?.status],
+  );
 
   const roundPhaseLabel = useMemo(() => {
+    if (tradingPhase === 'blind') return 'Blind trading';
+    if (tradingPhase === 'flop') return 'Flop trading';
+    if (tradingPhase === 'turn') return 'Turn trading';
+    if (tradingPhase === 'finished') return 'Round complete';
+    if (tradingPhase === 'waiting') return 'Waiting for players';
     switch (gamePhase) {
-      case 'waiting':
-        return 'Waiting for players';
-      case 'starting':
-        return 'Shuffling deck';
-      case 'playing':
-        return 'Trading in progress';
-      case 'revealing':
-        return 'Revealing hands';
-      case 'finished':
-        return 'Round complete';
-      default:
-        return 'Idle';
+      case 'waiting': return 'Waiting for players';
+      case 'starting': return 'Shuffling deck';
+      case 'playing': return 'Trading in progress';
+      case 'finished': return 'Round complete';
+      default: return 'Idle';
     }
-  }, [gamePhase]);
+  }, [tradingPhase, gamePhase]);
 
   if (!id) {
     return (
@@ -89,8 +81,7 @@ export default function TablePage() {
     );
   }
 
-  const noticeMessage = roomError || (roomStatus === 'loading' && !room ? 'Connecting to table…' : null);
-  const isTradingActive = room?.status === 'playing';
+  const noticeMessage = roomError || (roomStatus === 'loading' && !room ? 'Connecting to table...' : null);
 
   const handleStartRound = async () => {
     if (!id || !currentUser) return;
@@ -110,7 +101,7 @@ export default function TablePage() {
         const payload = await response.json().catch(() => ({}));
         throw new Error(payload?.error || 'Unable to start round');
       }
-      setActionMessage('Launching new round…');
+      setActionMessage('Launching new round...');
     } catch (err) {
       console.error('Failed to start round', err);
       setActionError(err instanceof Error ? err.message : 'Unable to start round');
@@ -121,12 +112,20 @@ export default function TablePage() {
 
   return (
     <main className="page" aria-labelledby="table-title">
+      {/* Settlement overlay */}
+      <SettlementScreen />
+
       <header className="page__header">
         <div>
-          <h1 id="table-title" className="page__title">🎲 {room?.name ?? `Table ${id}`}</h1>
-          <p className="page__subtitle">Round {roundNumber || 1} · {roundPhaseLabel}</p>
+          <h1 id="table-title" className="page__title">
+            {room?.name ?? `Table ${id}`}
+          </h1>
+          <p className="page__subtitle">Round {roundNumber || 1} &middot; {roundPhaseLabel}</p>
         </div>
         <div className="page__actions">
+          <Link to="/" className="button button--ghost">
+            &larr; Back
+          </Link>
           <ConnectWalletButton />
         </div>
       </header>
@@ -151,71 +150,82 @@ export default function TablePage() {
         </div>
       )}
 
-      <div className="grid grid--sidebar" style={{ alignItems: 'start', opacity: roomStatus === 'loading' ? 0.7 : 1 }}>
-        <div className="grid" style={{ gap: 20 }}>
-          <section className="card card--gradient" aria-live="polite">
-            <div className="section-heading">
-              <h2>🃏 Round status</h2>
-              <span>{gamePhase}</span>
-            </div>
-            <p className="card__subtitle">
-              House updates: {roundPhaseLabel}. Keep an eye on the clock and your opponents.
-            </p>
-            <TimerBar seconds={timeLeft} label={isTradingActive ? 'Trading window' : 'Waiting for host'} />
-          </section>
+      <div style={{ opacity: roomStatus === 'loading' ? 0.7 : 1 }}>
+        {/* Phase indicator */}
+        <PhaseIndicator />
 
-          <SeatAvatars />
+        {/* Community cards */}
+        <div style={{ marginTop: 16 }}>
+          <CommunityCards />
+        </div>
 
-          <section className="card" aria-label="Trading controls">
-            <div className="section-heading">
-              <h3>🎯 Trading controls</h3>
-              <span>Manage your flow</span>
-            </div>
-            <p className="card__subtitle">
-              Submit a quote or trigger commentary to keep the floor engaged.
-            </p>
-            <div className="page__actions" style={{ flexWrap: 'wrap' }}>
-              <QuoteModal roomId={id} disabled={!isTradingActive} />
-              <button
-                type="button"
-                className="button button--neutral"
-                onClick={() => queueVoice('Place your bets, traders!')}
-              >
-                📢 Call for bets
-              </button>
-              <button
-                type="button"
-                className="button button--neutral"
-                onClick={() => playCharacterReaction('close_call')}
-              >
-                😅 Close call
-              </button>
-              <button
-                type="button"
-                className="button button--neutral"
-                onClick={() => announceEvent('round.reveal')}
-              >
-                🎴 Reveal cards
-              </button>
-              {isHost && !isTradingActive && (
+        {/* Main content grid */}
+        <div
+          className="grid grid--sidebar"
+          style={{ alignItems: 'start', marginTop: 16 }}
+        >
+          {/* Left column: order book + order form */}
+          <div className="grid" style={{ gap: 16 }}>
+            <OrderBookDisplay roomId={id} />
+            <OrderForm
+              roomId={id}
+              disabled={!isTradingActive}
+              myCardValue={myCard}
+            />
+
+            {/* Host controls */}
+            {isHost && !isTradingActive && tradingPhase !== 'finished' && (
+              <section className="card" aria-label="Host controls">
                 <button
                   type="button"
                   className="button button--primary"
                   onClick={handleStartRound}
                   disabled={startingRound}
+                  style={{ width: '100%' }}
                 >
-                  {startingRound ? 'Launching…' : 'Start round'}
+                  {startingRound ? 'Launching...' : 'Start Round'}
                 </button>
-              )}
-            </div>
-          </section>
+              </section>
+            )}
 
-          <TradeTape />
+            {/* Voice action buttons */}
+            <section className="card" aria-label="Voice actions">
+              <div className="section-heading">
+                <h3>Table Actions</h3>
+              </div>
+              <div className="page__actions" style={{ flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="button button--neutral"
+                  onClick={() => queueVoice('Place your bets, traders!')}
+                >
+                  Call for bets
+                </button>
+                <button
+                  type="button"
+                  className="button button--neutral"
+                  onClick={() => playCharacterReaction('close_call')}
+                >
+                  Close call
+                </button>
+                <button
+                  type="button"
+                  className="button button--neutral"
+                  onClick={() => announceEvent('round.reveal')}
+                >
+                  Reveal cards
+                </button>
+              </div>
+            </section>
+          </div>
+
+          {/* Right column: seats, trade tape, voice */}
+          <aside className="grid" style={{ gap: 16 }} aria-label="Table info">
+            <SeatAvatars />
+            <TradeTape />
+            <VoiceControls className="table-voice-controls" />
+          </aside>
         </div>
-
-        <aside className="grid" style={{ gap: 20 }} aria-label="Table controls">
-          <VoiceControls className="table-voice-controls" />
-        </aside>
       </div>
     </main>
   );
