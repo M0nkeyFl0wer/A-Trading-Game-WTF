@@ -14,6 +14,7 @@ export interface PlayerState {
   isBot?: boolean;
   isWinner?: boolean;
   cardValue?: number;
+  cardRevealed?: boolean;
 }
 
 export interface TradeEvent {

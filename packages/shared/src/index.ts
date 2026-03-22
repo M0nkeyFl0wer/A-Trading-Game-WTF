@@ -24,6 +24,12 @@ export const DEFAULT_TABLE_CONFIG: TableConfig = {
   houseFee: 0.01,
 };
 
+/**
+ * Compute the expected value of the sum of all 8 dealt cards.
+ * Deck values: -10,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,20  (17 cards, sum = 130)
+ * With 8 cards drawn from 17, EV(total) = 130 * (8/17) ≈ 61.2
+ * cardDelta adjusts for known information (revealed community cards, etc.)
+ */
 export function computeEV(cardDelta: number): number {
   return 61.2 + cardDelta;
 }
@@ -94,3 +100,56 @@ export interface BotResult {
 }
 
 export type Indicator = 'RSI' | 'MACD' | 'VWAP' | 'SMA' | 'EMA' | 'BOLLINGER';
+
+// ============================================================================
+// Order Book & Phase Types (New Game Mechanics)
+// ============================================================================
+
+export type TradingPhase = 'blind' | 'flop' | 'turn' | 'settlement';
+
+export interface Order {
+  id: string;
+  playerId: string;
+  playerName: string;
+  side: 'bid' | 'ask';
+  price: number;
+  quantity: number;
+  filledQuantity: number;
+  timestamp: number;
+  phase: TradingPhase;
+  status: 'open' | 'filled' | 'partial' | 'cancelled';
+}
+
+export interface MatchedTrade {
+  id: string;
+  buyerId: string;
+  buyerName: string;
+  sellerId: string;
+  sellerName: string;
+  price: number;
+  quantity: number;
+  buyOrderId: string;
+  sellOrderId: string;
+  phase: TradingPhase;
+  timestamp: number;
+}
+
+export interface OrderBookSnapshot {
+  bids: Order[];   // sorted by price descending (best bid first)
+  asks: Order[];   // sorted by price ascending (best ask first)
+}
+
+export interface PhaseConfig {
+  phase: TradingPhase;
+  durationMs: number;
+  communityCardsRevealed: number;
+}
+
+export const PHASE_SEQUENCE: PhaseConfig[] = [
+  { phase: 'blind', durationMs: 30_000, communityCardsRevealed: 0 },
+  { phase: 'flop',  durationMs: 20_000, communityCardsRevealed: 1 },
+  { phase: 'turn',  durationMs: 20_000, communityCardsRevealed: 2 },
+];
+
+// Total phase duration for the full round
+export const TOTAL_ROUND_MS = PHASE_SEQUENCE.reduce((sum, p) => sum + p.durationMs, 0);

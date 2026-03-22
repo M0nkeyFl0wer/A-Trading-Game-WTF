@@ -133,7 +133,7 @@ export default function QuoteModal({ className = '', roomId, disabled }: QuoteMo
     <div aria-label="Quote order" role="group" className={className}>
       <button
         type="button"
-        className="button button--neutral"
+        className="button button--primary"
         onClick={() => {
           setOpen(true);
           setTimeout(() => firstFieldRef.current?.focus(), 0);
@@ -159,17 +159,20 @@ export default function QuoteModal({ className = '', roomId, disabled }: QuoteMo
             ref={dialogRef}
             tabIndex={-1}
           >
-            <header className="section-heading" style={{ marginBottom: 16 }}>
+            <header className="section-heading" style={{ marginBottom: 8 }}>
               <h2 id="quote-modal-title" style={{ margin: 0 }}>Submit a quote</h2>
               <button type="button" className="button button--ghost" onClick={() => closeModal()}>
                 ✕
               </button>
             </header>
+            <p style={{ margin: '0 0 16px', fontSize: '0.9rem', opacity: 0.7 }}>
+              Set your price and how many units to trade
+            </p>
 
             <form className="form-grid" onSubmit={handleSubmit}>
               <div className="grid grid--two">
                 <label htmlFor="quote-bid">
-                  Bid
+                  Buy price
                   <input
                     ref={firstFieldRef}
                     id="quote-bid"
@@ -185,7 +188,7 @@ export default function QuoteModal({ className = '', roomId, disabled }: QuoteMo
 
                 {!formState.oneWay && (
                   <label htmlFor="quote-ask">
-                    Ask
+                    Sell price
                     <input
                       id="quote-ask"
                       type="number"
@@ -201,7 +204,7 @@ export default function QuoteModal({ className = '', roomId, disabled }: QuoteMo
               </div>
 
               <label htmlFor="quote-size">
-                Size
+                Quantity
                 <input
                   id="quote-size"
                   type="number"
@@ -222,7 +225,7 @@ export default function QuoteModal({ className = '', roomId, disabled }: QuoteMo
                     setFormState(prev => ({ ...prev, oneWay: event.target.checked }))
                   }
                 />
-                <span>One-way quote (post bid only)</span>
+                <span>Sell only (no buy offer)</span>
               </label>
 
               {message && (

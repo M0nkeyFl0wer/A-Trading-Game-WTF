@@ -11,25 +11,29 @@
   "license": "ISC",
   "packageManager": "pnpm@10.17.1",
   "dependencies": {
+    "@trading-game/bot": "workspace:*",
+    "@trading-game/core": "workspace:*",
     "@trading-game/shared": "workspace:*",
+    "better-sqlite3": "^12.8.0",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "express-rate-limit": "^8.1.0",
-    "helmet": "^8.1.0",
-    "socket.io": "^4.8.1",
-    "undici": "^7.20.0",
     "firebase-admin": "^12.7.0",
-    "pino": "^9.3.0"
+    "helmet": "^8.1.0",
+    "pino": "^9.3.0",
+    "socket.io": "^4.8.1",
+    "undici": "^7.20.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/node": "^24.5.2",
+    "@types/supertest": "^2.0.16",
+    "pino-pretty": "^11.2.2",
+    "supertest": "^7.1.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2",
-    "supertest": "^7.1.1",
-    "@types/supertest": "^2.0.16",
-    "vitest": "^1.6.1",
-    "pino-pretty": "^11.2.2"
+    "vitest": "^1.6.1"
   }
 }

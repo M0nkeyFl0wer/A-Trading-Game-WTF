@@ -70,6 +70,7 @@ const normalizePlayers = (
   players: unknown,
   hostName: string,
   cardValues?: Map<string, number>,
+  cardRevealedMap?: Map<string, boolean>,
 ): PlayerState[] => {
   if (!players) {
     return [];
@@ -88,6 +89,7 @@ const normalizePlayers = (
       : (['DEALER', 'BULL', 'BEAR', 'WHALE', 'ROOKIE'] as PlayerState['character'][])[index % 5];
     const id = sanitizeInput(String(entry.id ?? `player-${index}`));
     const cardValue = cardValues?.get(id) ?? (typeof entry.cardValue === 'number' ? Number(entry.cardValue) : undefined);
+    const cardRevealed = cardRevealedMap?.get(id);
 
     return {
       id,
@@ -97,6 +99,7 @@ const normalizePlayers = (
       isBot: Boolean(entry.isBot),
       isWinner: Boolean(entry.isWinner),
       cardValue,
+      cardRevealed,
     } satisfies PlayerState;
   });
 };
@@ -105,10 +108,12 @@ const normalizeRoom = (payload: any): NormalizedRoom | null => {
   if (!payload) return null;
   const hostName = sanitizeInput(String(payload.hostName ?? 'Dealer'));
   const cardValues = new Map<string, number>();
+  const cardRevealed = new Map<string, boolean>();
   if (Array.isArray(payload.gameState?.playerCards)) {
     for (const entry of payload.gameState.playerCards) {
       if (entry?.id) {
         cardValues.set(String(entry.id), Number(entry.value ?? entry.cardValue ?? 0));
+        cardRevealed.set(String(entry.id), Boolean(entry.revealed));
       }
     }
   }
@@ -119,7 +124,7 @@ const normalizeRoom = (payload: any): NormalizedRoom | null => {
     hostName,
     hostId: payload.hostId ? sanitizeInput(String(payload.hostId)) : undefined,
     maxPlayers: Number(payload.maxPlayers ?? 6),
-    players: normalizePlayers(payload.players, hostName, cardValues),
+    players: normalizePlayers(payload.players, hostName, cardValues, cardRevealed),
     updatedAt: Number(payload.updatedAt ?? Date.now()),
     roundNumber: Number(payload.roundNumber ?? payload.gameState?.roundNumber ?? 0) || undefined,
     trades: Array.isArray(payload.gameState?.trades)
