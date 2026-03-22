@@ -39,6 +39,9 @@ lerna-debug.log*
 .vscode/*
 !.vscode/extensions.json
 
+# SQLite data
+data/
+
 # Temporary files
 *.tmp
 *.temp

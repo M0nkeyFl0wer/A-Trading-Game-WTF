@@ -1,7 +1,9 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { getFirestoreInstance } from '../lib/firebaseAdmin';
 import { emitRoomUpdated, emitRoomRemoved } from '../lib/roomEvents';
+import { emitGameEvent } from '../lib/gameEvents';
 import { gameEngine, type RoomGameState, type TradeSummary } from './gameEngine';
+import { ledgerService } from './ledger';
 
 export type RoomStatus = 'waiting' | 'playing' | 'starting' | 'finished';
 
@@ -204,6 +206,15 @@ export class RoomService {
         type: trade.side,
         timestamp: Date.now(),
       };
+      emitGameEvent('order_submit', room.id, room.roundNumber, {
+        playerId,
+        tradeId: summary.id,
+        side: trade.side,
+        price: trade.price,
+        quantity: trade.quantity,
+        counterpartyId: counterparty.id,
+      });
+
       const pending = [...(room.pendingTrades ?? []), summary];
       const gameState: RoomGameState = room.gameState || {
         roundNumber: room.roundNumber,
@@ -345,7 +356,7 @@ export class RoomService {
   private prepareRound(room: RoomRecord): RoomRecord {
     const roundNumber = room.roundNumber + 1;
     const roundEndsAt = Date.now() + TRADING_WINDOW_MS;
-    return {
+    const prepared: RoomRecord = {
       ...room,
       status: 'playing',
       roundNumber,
@@ -361,11 +372,17 @@ export class RoomService {
       },
       updatedAt: Date.now(),
     };
+
+    emitGameEvent('round_deal', room.id, roundNumber, {
+      playerCount: room.players.length,
+    });
+
+    return prepared;
   }
 
   private finalizeRound(room: RoomRecord): RoomRecord {
     const result = gameEngine.completeRound(room, room.pendingTrades ?? []);
-    return {
+    const finalized: RoomRecord = {
       ...room,
       status: result.status,
       players: result.players,
@@ -375,6 +392,25 @@ export class RoomService {
       roundEndsAt: undefined,
       updatedAt: Date.now(),
     };
+
+    // Compute P&L as the change in each player's balance
+    const pnl: Record<string, number> = {};
+    for (const updated of result.players) {
+      const original = room.players.find((p) => p.id === updated.id);
+      const originalBalance = original?.balance ?? DEFAULT_BALANCE;
+      pnl[updated.id] = Number((updated.balance - originalBalance).toFixed(2));
+    }
+
+    // Record to double-entry ledger
+    ledgerService.recordSettlement(room.id, result.roundNumber, pnl);
+
+    // Emit settlement event
+    emitGameEvent('settlement', room.id, result.roundNumber, {
+      tradeCount: result.gameState.trades.length,
+      pnl,
+    });
+
+    return finalized;
   }
 
   private scheduleRoundSettlement(roomId: string, delayMs = TRADING_WINDOW_MS) {

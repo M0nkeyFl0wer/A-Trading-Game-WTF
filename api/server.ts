@@ -8,6 +8,8 @@ import { getAuthInstance } from './lib/firebaseAdmin';
 import { roomEvents } from './lib/roomEvents';
 import { logger } from './lib/logger';
 import { metrics } from './lib/metrics';
+import { auditService } from './services/auditService';
+import { closeDatabase } from './services/database';
 
 import rootRoutes from './routes/index';
 import authRoutes from './routes/auth';
@@ -45,6 +47,9 @@ const io = new SocketIOServer(server, {
   },
   transports: ['websocket', 'polling']
 });
+
+// Initialize audit service (subscribes to game events, restores hash chain)
+auditService.init();
 
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '10mb' }));
@@ -184,6 +189,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 process.on('SIGTERM', () => {
   logger.warn('SIGTERM signal received: closing HTTP server');
   server.close(() => {
+    closeDatabase();
     logger.info('HTTP server closed');
     process.exit(0);
   });
@@ -192,6 +198,7 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   logger.warn('SIGINT signal received: closing HTTP server');
   server.close(() => {
+    closeDatabase();
     logger.info('HTTP server closed');
     process.exit(0);
   });
