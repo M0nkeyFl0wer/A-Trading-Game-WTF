@@ -11,6 +11,8 @@
   "license": "ISC",
   "packageManager": "pnpm@10.17.1",
   "dependencies": {
+    "@trading-game/bot": "workspace:*",
+    "@trading-game/core": "workspace:*",
     "@trading-game/shared": "workspace:*",
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.5",
