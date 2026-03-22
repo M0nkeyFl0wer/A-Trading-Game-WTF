@@ -112,6 +112,24 @@ function createTables(db: Database.Database): void {
       FOREIGN KEY (target_id) REFERENCES kg_entities(id) ON DELETE CASCADE
     );
 
+    -- Order book (new game mechanics) ------------------------------------
+
+    CREATE TABLE IF NOT EXISTS orders (
+      id            TEXT PRIMARY KEY,
+      round_id      INTEGER,
+      room_id       TEXT NOT NULL,
+      player_id     TEXT NOT NULL,
+      player_name   TEXT NOT NULL,
+      side          TEXT NOT NULL,
+      price         REAL NOT NULL,
+      quantity      INTEGER NOT NULL DEFAULT 1,
+      filled_qty    INTEGER NOT NULL DEFAULT 0,
+      phase         TEXT NOT NULL,
+      status        TEXT NOT NULL DEFAULT 'open',
+      timestamp     INTEGER NOT NULL,
+      FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+    );
+
     -- Indexes -----------------------------------------------------------
 
     CREATE INDEX IF NOT EXISTS idx_players_room ON players(room_id);
@@ -124,6 +142,8 @@ function createTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_kg_edges_target ON kg_edges(target_id);
     CREATE INDEX IF NOT EXISTS idx_kg_edges_relation ON kg_edges(relation);
     CREATE INDEX IF NOT EXISTS idx_kg_edges_source_relation ON kg_edges(source_id, relation);
+    CREATE INDEX IF NOT EXISTS idx_orders_room ON orders(room_id);
+    CREATE INDEX IF NOT EXISTS idx_orders_room_status ON orders(room_id, status);
   `);
 }
 

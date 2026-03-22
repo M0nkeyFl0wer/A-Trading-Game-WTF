@@ -36,6 +36,12 @@ importers:
 
   api:
     dependencies:
+      '@trading-game/bot':
+        specifier: workspace:*
+        version: link:../packages/bot
+      '@trading-game/core':
+        specifier: workspace:*
+        version: link:../packages/core
       '@trading-game/shared':
         specifier: workspace:*
         version: link:../packages/shared

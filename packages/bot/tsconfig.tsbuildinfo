@@ -1,1 +1,1 @@
-{"root":["./src/BaseBot.ts","./src/GunSlingerBot.ts","./src/index.ts"],"version":"5.9.2"}
+{"root":["./src/BaseBot.ts","./src/GunSlingerBot.ts","./src/index.ts","./src/sandbox/SecureBotSandbox.ts","./src/strategies/AdaptiveLearningEngine.ts","./src/strategies/BotInteractionSystem.ts","./src/strategies/CharacterStrategies.ts"],"version":"5.9.2"}
