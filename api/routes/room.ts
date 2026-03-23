@@ -222,43 +222,6 @@ router.delete('/:roomId/order/:orderId', async (req: Request, res: Response) => 
   }
 });
 
-// Legacy trade endpoint (deprecated -- use POST /:roomId/order instead)
-router.post('/:roomId/trade', async (req: Request, res: Response) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  const roomId = normalizeRoomId(req.params.roomId);
-  if (!roomId) {
-    return res.status(400).json({ error: 'Room ID is required' });
-  }
-
-  // Map old trade payload to new order format
-  try {
-    const price = Number(req.body?.price);
-    const quantity = Number(req.body?.quantity ?? 1);
-    const oldSide = req.body?.side;
-    const side: 'bid' | 'ask' = oldSide === 'sell' ? 'ask' : 'bid';
-
-    if (!Number.isFinite(price) || price <= 0) {
-      throw new RoomServiceError(400, 'Price must be greater than zero');
-    }
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      throw new RoomServiceError(400, 'Quantity must be greater than zero');
-    }
-
-    const room = await roomService.submitOrder(roomId, req.user.id, {
-      price,
-      quantity: Math.round(quantity),
-      side,
-    });
-
-    res.setHeader('X-Deprecated', 'Use POST /:roomId/order instead');
-    return res.status(200).json({ success: true, room });
-  } catch (error) {
-    return handleRoomError(error, res);
-  }
-});
-
 // Add a bot player to the room (host only)
 router.post('/:roomId/add-bot', async (req: Request, res: Response) => {
   if (!req.user) {
