@@ -9,6 +9,7 @@
  *   4. Self-trade prevention: a player cannot match against their own order.
  */
 
+import { randomBytes } from 'crypto';
 import type { TradingPhase } from '@trading-game/shared';
 export type { TradingPhase };
 
@@ -49,6 +50,11 @@ export interface OrderBookSnapshot {
   lastTradePrice: number | null;
 }
 
+/** Generate unpredictable order/trade IDs using crypto random bytes. */
+function generateId(prefix: string): string {
+  return `${prefix}_${randomBytes(8).toString('hex')}`;
+}
+
 let orderCounter = 0;
 
 export class OrderBook {
@@ -70,7 +76,7 @@ export class OrderBook {
   ): { order: Order; trades: MatchedTrade[] } {
     const order: Order = {
       ...incoming,
-      id: `ord_${++orderCounter}`,
+      id: generateId('ord'),
       filledQuantity: 0,
       status: 'open',
     };
@@ -205,13 +211,6 @@ export class OrderBook {
       }
     }
 
-    // Restore global counter so new IDs don't collide.
-    const maxId = orders.reduce((max, o) => {
-      const num = parseInt(o.id.replace('ord_', ''), 10);
-      return Number.isNaN(num) ? max : Math.max(max, num);
-    }, orderCounter);
-    orderCounter = maxId;
-
     return book;
   }
 
@@ -265,7 +264,7 @@ export class OrderBook {
       }
 
       const trade: MatchedTrade = {
-        id: `trade_${++this.tradeCounter}`,
+        id: generateId('trade'),
         buyerId: bid.playerId,
         buyerName: bid.playerName,
         sellerId: ask.playerId,

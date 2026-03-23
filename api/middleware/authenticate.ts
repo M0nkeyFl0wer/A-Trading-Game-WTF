@@ -6,6 +6,9 @@ const devBypassEnabled = process.env.AUTH_DEV_BYPASS === 'true';
 const devBypassUserId = process.env.AUTH_DEV_USER_ID || 'dev-user';
 const devBypassUserEmail = process.env.AUTH_DEV_USER_EMAIL || 'dev@example.com';
 
+// Validate dev user ID to prevent injection via header
+const SAFE_DEV_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
 const extractBearerToken = (req: Request): string | null => {
   const header = req.headers.authorization;
   if (!header || typeof header !== 'string') {
@@ -27,8 +30,15 @@ const attachUserToRequest = (req: Request, decoded: DecodedIdToken | null) => {
     return;
   }
 
+  // In dev bypass mode, allow X-Dev-User-Id header to set distinct identities.
+  // This enables multiplayer testing without Firebase. Validate strictly.
+  const headerUserId = req.headers['x-dev-user-id'];
+  const customId = typeof headerUserId === 'string' && SAFE_DEV_ID_RE.test(headerUserId)
+    ? headerUserId
+    : devBypassUserId;
+
   req.user = {
-    id: devBypassUserId,
+    id: customId,
     email: devBypassUserEmail,
     role: 'developer',
   };

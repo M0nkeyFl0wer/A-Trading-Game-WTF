@@ -71,11 +71,28 @@ const handleRoomError = (error: unknown, res: Response) => {
   });
 };
 
-// Public list of rooms
-router.get('/', async (_req: Request, res: Response) => {
+// Public list of rooms (sanitized -- no game state secrets)
+router.get('/', async (req: Request, res: Response) => {
   try {
     const rooms = await roomService.listRooms();
-    return res.status(200).json({ rooms });
+    // Strip full game state from listing -- only show metadata
+    const safeLobbyRooms = rooms.map(room => ({
+      id: room.id,
+      name: room.name,
+      status: room.status,
+      hostName: room.hostName,
+      maxPlayers: room.maxPlayers,
+      players: room.players?.map(p => ({
+        id: p.id,
+        name: p.name,
+        character: p.character,
+        isBot: p.isBot,
+      })),
+      createdAt: room.createdAt,
+      updatedAt: room.updatedAt,
+      roundNumber: room.roundNumber,
+    }));
+    return res.status(200).json({ rooms: safeLobbyRooms });
   } catch (error) {
     return handleRoomError(error, res);
   }
@@ -105,7 +122,7 @@ router.post('/create', async (req: Request, res: Response) => {
     const maxPlayers = parseMaxPlayers(req.body?.maxPlayers);
     const hostName = getDisplayName(req);
     const room = await roomService.createRoom(name, maxPlayers, req.user.id, hostName);
-    return res.status(201).json({ success: true, room });
+    return res.status(201).json({ success: true, room: sanitizeRoomForPlayer(room, req.user.id) });
   } catch (error) {
     return handleRoomError(error, res);
   }
@@ -125,7 +142,7 @@ const handleJoinRoom = async (req: Request, res: Response) => {
       id: req.user.id,
       name: getDisplayName(req),
     });
-    return res.status(200).json({ success: true, room });
+    return res.status(200).json({ success: true, room: sanitizeRoomForPlayer(room, req.user.id) });
   } catch (error) {
     return handleRoomError(error, res);
   }
@@ -145,7 +162,7 @@ const handleLeaveRoom = async (req: Request, res: Response) => {
   }
   try {
     const room = await roomService.leaveRoom(roomId, req.user.id);
-    return res.status(200).json({ success: true, room });
+    return res.status(200).json({ success: true, room: sanitizeRoomForPlayer(room, req.user.id) });
   } catch (error) {
     return handleRoomError(error, res);
   }
@@ -187,7 +204,7 @@ router.post('/:roomId/order', async (req: Request, res: Response) => {
       side: order.side,
     });
 
-    return res.status(200).json({ success: true, room, receipt });
+    return res.status(200).json({ success: true, room: sanitizeRoomForPlayer(room, req.user.id), receipt });
   } catch (error) {
     return handleRoomError(error, res);
   }
@@ -216,7 +233,7 @@ router.delete('/:roomId/order/:orderId', async (req: Request, res: Response) => 
       orderId,
     });
 
-    return res.status(200).json({ success: true, room, receipt });
+    return res.status(200).json({ success: true, room: sanitizeRoomForPlayer(room, req.user.id), receipt });
   } catch (error) {
     return handleRoomError(error, res);
   }
@@ -238,7 +255,7 @@ router.post('/:roomId/add-bot', async (req: Request, res: Response) => {
       ? character
       : undefined;
     const room = await botService.addBot(roomId, req.user.id, safeCharacter);
-    return res.status(200).json({ success: true, room });
+    return res.status(200).json({ success: true, room: sanitizeRoomForPlayer(room, req.user.id) });
   } catch (error) {
     return handleRoomError(error, res);
   }
@@ -255,7 +272,7 @@ router.post('/:roomId/start', async (req: Request, res: Response) => {
   }
   try {
     const room = await roomService.startRoom(roomId, req.user.id);
-    return res.status(200).json({ success: true, room });
+    return res.status(200).json({ success: true, room: sanitizeRoomForPlayer(room, req.user.id) });
   } catch (error) {
     return handleRoomError(error, res);
   }
@@ -294,7 +311,7 @@ router.get('/:roomId/compliance', async (req: Request, res: Response) => {
         zeroSumValid: Boolean(r.zero_sum_valid),
         auditChainValid: Boolean(r.audit_chain_valid),
         infoFlowValid: Boolean(r.info_flow_valid),
-        details: r.details ? JSON.parse(r.details) : null,
+        details: (() => { try { return r.details ? JSON.parse(r.details) : null; } catch { return null; } })(),
         createdAt: r.created_at,
       })),
     });

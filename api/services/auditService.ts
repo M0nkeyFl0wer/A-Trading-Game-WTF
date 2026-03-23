@@ -37,8 +37,10 @@ class AuditService {
 
   logEvent(event: GameEvent): void {
     const payload = JSON.stringify(event.payload);
+    // Use pipe-delimited concatenation to prevent field-boundary ambiguity attacks.
+    // Without delimiters, eventType="a" + payload="bc" hashes identically to eventType="ab" + payload="c".
     const hash = createHash('sha256')
-      .update(this.lastHash + event.type + payload + event.timestamp)
+      .update(`${this.lastHash}|${event.type}|${payload}|${event.timestamp}`)
       .digest('hex');
 
     const db = getDatabase();
@@ -71,7 +73,7 @@ class AuditService {
     let prevHash = GENESIS_HASH;
     for (const row of rows) {
       const expected = createHash('sha256')
-        .update(prevHash + row.event_type + row.payload + row.timestamp)
+        .update(`${prevHash}|${row.event_type}|${row.payload}|${row.timestamp}`)
         .digest('hex');
       if (expected !== row.hash) {
         return { valid: false, brokenAt: row.id };

@@ -180,6 +180,8 @@ export class RoomService {
     playerId: string,
     order: { price: number; quantity: number; side: 'bid' | 'ask' },
   ): Promise<RoomRecord> {
+    const MAX_SETTLEMENT = 130;
+
     const applyOrder = (room: RoomRecord): RoomRecord => {
       const phase = room.status;
       if (phase !== 'blind' && phase !== 'flop' && phase !== 'turn') {
@@ -187,6 +189,36 @@ export class RoomService {
       }
       const player = room.players.find((p) => p.id === playerId);
       if (!player) throw new RoomServiceError(404, 'Player not found in room');
+
+      // Margin enforcement (mirrors SqliteRoomService)
+      const maxLoss = order.side === 'bid'
+        ? order.price * order.quantity
+        : (MAX_SETTLEMENT - order.price) * order.quantity;
+
+      const existingOrders = (room.gameState?.orders ?? []).filter(
+        (o) => o.playerId === playerId && (o.status === 'open' || o.status === 'partial'),
+      );
+      const lockedMargin = existingOrders.reduce((sum, o) => {
+        const remaining = o.quantity - o.filledQuantity;
+        return sum + (o.side === 'bid' ? o.price * remaining : (MAX_SETTLEMENT - o.price) * remaining);
+      }, 0);
+
+      const availableBalance = player.balance - lockedMargin;
+      if (maxLoss > availableBalance) {
+        throw new RoomServiceError(400,
+          `Insufficient margin. Required: $${maxLoss.toFixed(2)}, Available: $${availableBalance.toFixed(2)}`,
+        );
+      }
+
+      // Anti-spoofing: max 5 open orders per player
+      if (room.gameState) {
+        const openCount = room.gameState.orders.filter(
+          (o) => o.playerId === playerId && (o.status === 'open' || o.status === 'partial'),
+        ).length;
+        if (openCount >= 5) {
+          throw new RoomServiceError(400, 'Maximum 5 open orders per player');
+        }
+      }
 
       const { gameState } = gameEngine.submitOrder(room, playerId, player.name, order);
       return {
@@ -232,6 +264,11 @@ export class RoomService {
       if (!orderToCancel) throw new RoomServiceError(404, 'Order not found');
       if (orderToCancel.playerId !== playerId) {
         throw new RoomServiceError(403, 'Cannot cancel another player\'s order');
+      }
+
+      // Anti-spoofing: minimum 2-second resting time before cancel
+      if (Date.now() - orderToCancel.timestamp < 2000) {
+        throw new RoomServiceError(400, 'Orders must rest at least 2 seconds before cancellation');
       }
 
       const gameState = gameEngine.cancelOrder(room, orderId);

@@ -84,13 +84,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 app.get('/api/health', (req: Request, res: Response) => {
+  // Only expose minimal info -- uptime, memory, and metrics leak server internals
+  // that help attackers fingerprint and time attacks.
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    environment: process.env.NODE_ENV || 'development',
-    metrics: metrics.snapshotMetrics(),
   });
 });
 
@@ -109,7 +107,12 @@ io.use(async (socket, next) => {
 
     if (!auth) {
       if (process.env.AUTH_DEV_BYPASS === 'true') {
-        socket.data.user = { id: `dev-${socket.id}`, email: 'dev@example.com' };
+        // Use auth.userId from handshake if provided, otherwise socket-unique ID
+        const devId = typeof socket.handshake.auth?.userId === 'string'
+          && /^[a-zA-Z0-9_-]{1,64}$/.test(socket.handshake.auth.userId)
+          ? socket.handshake.auth.userId
+          : `dev-${socket.id}`;
+        socket.data.user = { id: devId, email: 'dev@example.com' };
         return next();
       }
       return next(new Error('Authentication unavailable'));
@@ -117,7 +120,11 @@ io.use(async (socket, next) => {
 
     if (!token || typeof token !== 'string') {
       if (process.env.AUTH_DEV_BYPASS === 'true') {
-        socket.data.user = { id: 'dev-user', email: 'dev@example.com' };
+        const devId = typeof socket.handshake.auth?.userId === 'string'
+          && /^[a-zA-Z0-9_-]{1,64}$/.test(socket.handshake.auth.userId)
+          ? socket.handshake.auth.userId
+          : `dev-${socket.id}`;
+        socket.data.user = { id: devId, email: 'dev@example.com' };
         return next();
       }
       return next(new Error('Authentication error: No token provided'));
