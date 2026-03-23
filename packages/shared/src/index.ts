@@ -153,3 +153,44 @@ export const PHASE_SEQUENCE: PhaseConfig[] = [
 
 // Total phase duration for the full round
 export const TOTAL_ROUND_MS = PHASE_SEQUENCE.reduce((sum, p) => sum + p.durationMs, 0);
+
+// ============================================================================
+// Commit-Reveal Card Verification
+// ============================================================================
+
+/**
+ * The canonical string that gets hashed for a card commitment.
+ * Both server and client must agree on this format.
+ *
+ * Formula: SHA-256( "<value>:<nonce>" )  where value is the numeric card value
+ * and nonce is the 32-char hex string generated at deal time.
+ */
+export function commitmentPreimage(value: number, nonce: string): string {
+  return `${value}:${nonce}`;
+}
+
+/**
+ * Verify a card commitment using the Web Crypto API (works in browsers and
+ * Node 18+).  Returns a promise that resolves to true when the commitment
+ * matches SHA-256(value:nonce).
+ *
+ * Usage (browser):
+ *   const ok = await verifyCardCommitment(cardValue, nonce, publishedCommitment);
+ *
+ * Usage (Node with 'crypto'):
+ *   import { createHash } from 'crypto';
+ *   const hash = createHash('sha256').update(commitmentPreimage(value, nonce)).digest('hex');
+ *   const ok = hash === publishedCommitment;
+ */
+export async function verifyCardCommitment(
+  value: number,
+  nonce: string,
+  commitment: string,
+): Promise<boolean> {
+  const preimage = commitmentPreimage(value, nonce);
+  const encoded = new TextEncoder().encode(preimage);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  return hashHex === commitment;
+}

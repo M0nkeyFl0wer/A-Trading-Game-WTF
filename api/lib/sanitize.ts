@@ -7,13 +7,14 @@ import type { RoomGameState } from '../services/gameEngine';
  * - Only show revealedCommunityCards (strip raw communityCards)
  * - Anonymize other players' orders (strip playerId/playerName)
  * - Anonymize matched trades (only reveal the requesting player's identity)
+ * - Strip allNonces and shuffleSeed during active play (commit-reveal)
  */
 export function sanitizeRoomForPlayer(room: RoomRecord, playerId: string | undefined): any {
   if (!room.gameState) return room;
 
   const gs = room.gameState;
 
-  return {
+  const sanitized = {
     ...room,
     gameState: {
       ...gs,
@@ -44,4 +45,14 @@ export function sanitizeRoomForPlayer(room: RoomRecord, playerId: string | undef
       })),
     },
   };
+
+  // Strip server-side secrets during active play.
+  // commitments and revealedNonces ARE sent (clients need them for verification).
+  // allNonces and shuffleSeed are only revealed at settlement (phase === 'finished').
+  if (gs.phase !== 'finished') {
+    delete sanitized.gameState.allNonces;
+    delete sanitized.gameState.shuffleSeed;
+  }
+
+  return sanitized;
 }

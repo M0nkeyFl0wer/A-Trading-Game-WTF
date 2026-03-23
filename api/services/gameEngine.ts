@@ -1,4 +1,4 @@
-import { randomInt } from 'crypto';
+import { createHash, randomBytes, randomInt } from 'crypto';
 import { OrderBook } from '@trading-game/core';
 import {
   DEFAULT_DECK,
@@ -17,6 +17,16 @@ import { logger } from '../lib/logger';
 // Public types
 // ---------------------------------------------------------------------------
 
+export interface CardCommitment {
+  id: string;
+  commitment: string;
+}
+
+export interface CardNonce {
+  id: string;
+  nonce: string;
+}
+
 export interface RoomGameState {
   roundNumber: number;
   phase: TradingPhase | 'waiting' | 'finished';
@@ -34,6 +44,17 @@ export interface RoomGameState {
   settlementTotal?: number;
   /** Per-player PnL from CFD settlement. Set after settlement. */
   pnl?: Record<string, number>;
+
+  // -- Commit-reveal cryptographic verification fields --
+
+  /** SHA-256 commitments for all dealt cards (published at deal time). */
+  commitments?: CardCommitment[];
+  /** Nonces for cards revealed so far (published progressively). */
+  revealedNonces?: CardNonce[];
+  /** All nonces — stored server-side, stripped by sanitize until settlement. */
+  allNonces?: CardNonce[];
+  /** Hex seed used for the shuffle — revealed at settlement. */
+  shuffleSeed?: string;
 }
 
 export interface GameResult {
@@ -79,6 +100,7 @@ export class GameEngine {
    */
   dealRound(room: RoomRecord): RoomGameState {
     const roundNumber = room.roundNumber;
+    const shuffleSeed = randomBytes(32).toString('hex');
     const deck = shuffleDeck([...DEFAULT_DECK]);
 
     const playerCards: RoomGameState['playerCards'] = room.players.map((p) => {
@@ -94,6 +116,31 @@ export class GameEngine {
       communityCards.push(value);
     }
 
+    // Generate nonces and commitments for every dealt card
+    const cardNonces: Array<{ id: string; nonce: string; value: number }> = [];
+
+    for (const pc of playerCards) {
+      const nonce = randomBytes(16).toString('hex');
+      cardNonces.push({ id: pc.id, nonce, value: pc.value });
+    }
+
+    for (let i = 0; i < communityCards.length; i++) {
+      const nonce = randomBytes(16).toString('hex');
+      cardNonces.push({ id: `community_${i}`, nonce, value: communityCards[i] });
+    }
+
+    const commitments: CardCommitment[] = cardNonces.map((cn) => ({
+      id: cn.id,
+      commitment: createHash('sha256')
+        .update(`${cn.value}:${cn.nonce}`)
+        .digest('hex'),
+    }));
+
+    const allNonces: CardNonce[] = cardNonces.map((cn) => ({
+      id: cn.id,
+      nonce: cn.nonce,
+    }));
+
     const blindConfig = PHASE_SEQUENCE[0];
     const now = Date.now();
 
@@ -107,6 +154,10 @@ export class GameEngine {
       playerCards,
       phaseEndsAt: now + blindConfig.durationMs,
       updatedAt: now,
+      commitments,
+      allNonces,
+      revealedNonces: [],
+      shuffleSeed,
     };
 
     logger.info(
@@ -136,12 +187,25 @@ export class GameEngine {
     const nextConfig = PHASE_SEQUENCE[nextIdx];
     const now = Date.now();
 
+    // Determine which community card nonces to reveal progressively
+    const prevRevealedCount = gs.revealedCommunityCards?.length ?? 0;
+    const nextRevealedCards = revealedCardsForPhase(gs.communityCards, nextConfig.phase);
+    const revealedNonces = [...(gs.revealedNonces ?? [])];
+
+    for (let i = prevRevealedCount; i < nextRevealedCards.length; i++) {
+      const nonce = gs.allNonces?.find((n) => n.id === `community_${i}`);
+      if (nonce) {
+        revealedNonces.push(nonce);
+      }
+    }
+
     const updated: RoomGameState = {
       ...gs,
       phase: nextConfig.phase,
-      revealedCommunityCards: revealedCardsForPhase(gs.communityCards, nextConfig.phase),
+      revealedCommunityCards: nextRevealedCards,
       phaseEndsAt: now + nextConfig.durationMs,
       updatedAt: now,
+      revealedNonces,
     };
 
     logger.info(
@@ -270,7 +334,7 @@ export class GameEngine {
       isWinner: p.balance === winningBalance,
     }));
 
-    // Reveal all cards in final state
+    // Reveal all cards and all crypto verification data in final state
     const finalGameState: RoomGameState = {
       ...gs,
       phase: 'finished',
@@ -279,6 +343,9 @@ export class GameEngine {
       settlementTotal,
       pnl,
       updatedAt: Date.now(),
+      // Reveal all nonces and shuffle seed so anyone can verify the deal
+      revealedNonces: gs.allNonces ?? [],
+      shuffleSeed: gs.shuffleSeed,
     };
 
     logger.info(
