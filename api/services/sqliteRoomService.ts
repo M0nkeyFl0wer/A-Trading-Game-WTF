@@ -7,6 +7,7 @@ import { gameEngine, type RoomGameState } from './gameEngine';
 import type { RoomRecord, RoomPlayer, RoomStatus } from './roomService';
 import { RoomServiceError } from './roomService';
 import { logger } from '../lib/logger';
+import { createSignedReceipt } from '../lib/signing';
 
 const createRoomId = () => `room_${randomUUID().slice(0, 8).toUpperCase()}`;
 
@@ -663,6 +664,18 @@ export class SqliteRoomService {
       }
 
       const gameResult = gameEngine.settleRound(room);
+
+      // Attach Ed25519-signed settlement receipt for non-repudiation
+      const settlementReceipt = createSignedReceipt({
+        type: 'settlement',
+        roomId,
+        roundNumber: gameResult.roundNumber,
+        settlementTotal: gameResult.gameState.settlementTotal,
+        pnl: gameResult.gameState.pnl,
+        tradeCount: gameResult.gameState.matchedTrades.length,
+      });
+      gameResult.gameState.settlementReceipt = settlementReceipt;
+
       const updatedRoom: RoomRecord = {
         ...room,
         status: 'finished',

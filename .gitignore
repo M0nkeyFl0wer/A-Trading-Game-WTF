@@ -12,7 +12,6 @@ pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .DS_Store
-<<<<<<< HEAD
 Thumbs.db
 *.log
 .vscode/settings.json
@@ -25,7 +24,6 @@ firebase-debug.log
 .turbo
 out/
 storybook-static/
-=======
 *.suo
 *.ntvs*
 *.njsproj
@@ -34,12 +32,8 @@ storybook-static/
 .vscode/*
 !.vscode/extensions.json
 
-# SQLite data
-data/
-
 # Temporary files
 *.tmp
->>>>>>> worktree-agent-ae062c60
 *.temp
 .cache/
 
@@ -51,6 +45,9 @@ data/
 *.db
 *.db-wal
 *.db-shm
+
+# Ed25519 server private key (NEVER commit)
+api/data/server.key
 
 # Package manager
 #pnpm-lock.yaml

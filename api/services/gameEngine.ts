@@ -55,6 +55,15 @@ export interface RoomGameState {
   allNonces?: CardNonce[];
   /** Hex seed used for the shuffle — revealed at settlement. */
   shuffleSeed?: string;
+
+  // -- Ed25519 signed receipt --
+
+  /** Server-signed settlement receipt for non-repudiation. */
+  settlementReceipt?: {
+    data: Record<string, unknown>;
+    timestamp: number;
+    signature: string;
+  };
 }
 
 export interface GameResult {

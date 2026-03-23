@@ -4,6 +4,7 @@ import type { CharacterType } from '@trading-game/shared';
 import { roomService, RoomServiceError } from '../services/roomService';
 import { botService } from '../services/botService';
 import { sanitizeRoomForPlayer } from '../lib/sanitize';
+import { createSignedReceipt, getPublicKey } from '../lib/signing';
 
 const router: Router = Router();
 
@@ -153,6 +154,11 @@ const handleLeaveRoom = async (req: Request, res: Response) => {
 router.post('/leave/:roomId', handleLeaveRoom);  // frontend pattern
 router.post('/:roomId/leave', handleLeaveRoom);  // RESTful alias
 
+// Serve the server's Ed25519 public key for client-side receipt verification
+router.get('/public-key', (_req: Request, res: Response) => {
+  res.type('text/plain').send(getPublicKey());
+});
+
 // Submit order to order book
 router.post('/:roomId/order', async (req: Request, res: Response) => {
   if (!req.user) {
@@ -165,7 +171,23 @@ router.post('/:roomId/order', async (req: Request, res: Response) => {
   try {
     const order = parseOrderPayload(req.body);
     const room = await roomService.submitOrder(roomId, req.user.id, order);
-    return res.status(200).json({ success: true, room });
+
+    // Find the most recent order placed by this player to identify its ID
+    const latestOrder = room.gameState?.orders
+      ?.filter((o) => o.playerId === req.user!.id)
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
+
+    const receipt = createSignedReceipt({
+      type: 'order_confirmation',
+      roomId,
+      playerId: req.user.id,
+      orderId: latestOrder?.id,
+      price: order.price,
+      quantity: order.quantity,
+      side: order.side,
+    });
+
+    return res.status(200).json({ success: true, room, receipt });
   } catch (error) {
     return handleRoomError(error, res);
   }
@@ -186,7 +208,15 @@ router.delete('/:roomId/order/:orderId', async (req: Request, res: Response) => 
   }
   try {
     const room = await roomService.cancelOrder(roomId, req.user.id, orderId);
-    return res.status(200).json({ success: true, room });
+
+    const receipt = createSignedReceipt({
+      type: 'order_cancel',
+      roomId,
+      playerId: req.user.id,
+      orderId,
+    });
+
+    return res.status(200).json({ success: true, room, receipt });
   } catch (error) {
     return handleRoomError(error, res);
   }
