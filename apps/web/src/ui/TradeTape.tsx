@@ -35,9 +35,10 @@ export default function TradeTape() {
       </div>
 
       {orderedTrades.length === 0 ? (
-        <p className="card__subtitle">
-          Matched trades will appear here as bids and asks cross in the order book.
-        </p>
+        <div className="empty-state">
+          <div className="empty-state__icon">--</div>
+          <div>Trades will appear here as bids and asks cross. Place an order to get started!</div>
+        </div>
       ) : (
         <ol
           className="list-reset"

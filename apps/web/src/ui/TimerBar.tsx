@@ -18,7 +18,7 @@ export default function TimerBar({ seconds, label = 'Round timer', isPaused = fa
 
     const interval = window.setInterval(() => {
       const elapsed = (Date.now() - start) / 1000;
-      setRemaining(prev => {
+      setRemaining(() => {
         const next = Math.max(0, seconds - Math.floor(elapsed));
         return next;
       });
@@ -30,9 +30,10 @@ export default function TimerBar({ seconds, label = 'Round timer', isPaused = fa
   }, [seconds, isPaused]);
 
   const progress = Math.max(0, Math.min(1, remaining / seconds));
+  const isUrgent = remaining > 0 && remaining <= 5;
 
   return (
-    <div>
+    <div className={isUrgent ? 'timer-urgent' : ''}>
       <div
         className="progress-track"
         role="progressbar"
@@ -47,10 +48,23 @@ export default function TimerBar({ seconds, label = 'Round timer', isPaused = fa
           initial={{ width: '100%' }}
           animate={{ width: `${progress * 100}%` }}
           transition={{ ease: 'easeInOut', duration: 0.8 }}
+          style={{
+            background: isUrgent
+              ? 'linear-gradient(135deg, #ef4444, #f87171)'
+              : undefined,
+          }}
         />
       </div>
-      <div style={{ marginTop: 8, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-        {isPaused ? 'Paused' : `${remaining}s remaining`}
+      <div
+        className={isUrgent ? 'timer-urgent-text' : ''}
+        style={{
+          marginTop: 8,
+          color: isUrgent ? '#ef4444' : 'var(--text-secondary)',
+          fontSize: '0.85rem',
+          fontWeight: isUrgent ? 700 : 400,
+        }}
+      >
+        {isPaused ? 'Paused' : `${remaining}s remaining${isUrgent ? ' - HURRY!' : ''}`}
       </div>
     </div>
   );

@@ -158,7 +158,10 @@ export default function OrderBookDisplay({ roomId }: OrderBookDisplayProps) {
             Bids
           </div>
           {bids.length === 0 ? (
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', padding: '8px 0' }}>No bids</div>
+            <div className="empty-state" style={{ padding: '12px 0' }}>
+              <div className="empty-state__icon">--</div>
+              <div style={{ fontSize: '0.78rem' }}>No bids yet -- be the first!</div>
+            </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               {bids.slice(0, 8).map((level) => renderLevel(level, 'bid'))}
@@ -181,7 +184,10 @@ export default function OrderBookDisplay({ roomId }: OrderBookDisplayProps) {
             Asks
           </div>
           {asks.length === 0 ? (
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', padding: '8px 0' }}>No asks</div>
+            <div className="empty-state" style={{ padding: '12px 0' }}>
+              <div className="empty-state__icon">--</div>
+              <div style={{ fontSize: '0.78rem' }}>No asks yet -- place one!</div>
+            </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               {asks.slice(0, 8).map((level) => renderLevel(level, 'ask'))}

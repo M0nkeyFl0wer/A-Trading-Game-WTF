@@ -6,8 +6,8 @@ import { useGameStore } from '../store';
 import CreateTableModal from '../ui/CreateTableModal';
 import { type CreateTableConfig } from '../ui/CreateTableModal';
 import ConnectWalletButton from '../ui/ConnectWalletButton';
-import VoiceControls from '../ui/VoiceControls';
-import CharacterGallery from '../ui/CharacterGallery';
+import VoiceControlsMini from '../ui/VoiceControlsMini';
+import CharacterStrip from '../ui/CharacterStrip';
 import { useLobbyTables } from '../hooks/useLobbyTables';
 import { type LobbyTableSummary } from '../hooks/useLobbyTables';
 import { useAuth } from '../contexts/AuthContext';
@@ -116,7 +116,7 @@ export default function LobbyPage() {
       <header className="page__header">
         <div>
           <h1 id="lobby-title" className="page__title">
-            🎰 Trading Game Lobby
+            Trading Game Lobby
           </h1>
           <p className="page__subtitle">
             Join an active table, or launch a new room and invite the market to your floor.
@@ -130,25 +130,32 @@ export default function LobbyPage() {
         </div>
         <div className="page__actions">
           <Link to="/payments" className="button button--neutral">
-            💰 Payments
+            Payments
           </Link>
           <button type="button" className="button button--ghost" onClick={refresh} disabled={isLoading}>
-            🔄 Refresh
+            Refresh
           </button>
           <ConnectWalletButton />
         </div>
       </header>
 
+      {/* Game explanation -- helps first-time players immediately understand */}
+      <div className="game-explainer">
+        <strong>How it works:</strong> Trade contracts on hidden card values.
+        3 rounds of bidding as community cards are revealed.
+        Closest to the total wins. Create a table to start, or join one below.
+      </div>
+
+      {/* Character selection -- compact horizontal strip */}
       <section aria-label="Character selection">
-        <CharacterGallery
+        <CharacterStrip
           selectedCharacter={selectedCharacter}
           onCharacterSelect={setSelectedCharacter}
-          enableVoice={voiceEnabled}
         />
       </section>
 
       {!isAuthenticated && (
-        <div className="inline-notice inline-notice--info" role="alert" style={{ marginBottom: 16 }}>
+        <div className="inline-notice inline-notice--info" role="alert" style={{ marginBottom: 0 }}>
           Sign in to create or join live tables. Preview data shown.
         </div>
       )}
@@ -162,16 +169,16 @@ export default function LobbyPage() {
       <div className="grid grid--sidebar">
         <section className="card" aria-labelledby="open-tables-heading">
           <div className="section-heading">
-            <h2 id="open-tables-heading">📊 Available tables</h2>
+            <h2 id="open-tables-heading">Available tables</h2>
             <span>
-              {isLoading ? 'Loading tables…' : `${tables.length} ${tables.length === 1 ? 'table' : 'tables'}`}
+              {isLoading ? 'Loading tables...' : `${tables.length} ${tables.length === 1 ? 'table' : 'tables'}`}
             </span>
           </div>
 
           {isLoading && (
             <div className="grid" aria-hidden="true">
               {Array.from({ length: 3 }).map((_, index) => (
-                <div key={index} className="card skeleton" style={{ height: 128 }} />
+                <div key={index} className="skeleton-block" style={{ height: 128 }} />
               ))}
             </div>
           )}
@@ -180,7 +187,7 @@ export default function LobbyPage() {
             <div className="card card--gradient" role="status" aria-live="polite">
               <h3 className="card__title">No active tables yet</h3>
               <p className="card__subtitle">
-                Be the first to launch a game and invite others to trade.
+                Create a table to start playing! You can add bots for practice once you are at the table.
               </p>
               <CreateTableModal
                 onCreate={handleCreateTable}
@@ -261,7 +268,7 @@ export default function LobbyPage() {
             disabled={!isAuthenticated}
             disabledMessage="Sign in to create a table"
           />
-          <VoiceControls className="lobby-voice-controls" />
+          <VoiceControlsMini />
         </aside>
       </div>
     </main>
