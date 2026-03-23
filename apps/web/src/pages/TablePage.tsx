@@ -1,5 +1,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { computeEV } from '@trading-game/shared';
 import OrderForm from '../ui/OrderForm';
 import OrderBookDisplay from '../ui/OrderBookDisplay';
 import PhaseIndicator from '../ui/PhaseIndicator';
@@ -8,7 +9,7 @@ import TradeTape from '../ui/TradeTape';
 import SeatAvatars from '../ui/SeatAvatars';
 import SettlementScreen from '../ui/SettlementScreen';
 import ConnectWalletButton from '../ui/ConnectWalletButton';
-import VoiceControls from '../ui/VoiceControls';
+import VoiceControlsMini from '../ui/VoiceControlsMini';
 import { useGameVoice } from '../hooks/useGameVoice';
 import { useGameStore } from '../store';
 import type { Commentary } from '../store';
@@ -31,6 +32,7 @@ export default function TablePage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [startingRound, setStartingRound] = useState(false);
+  const [addingBot, setAddingBot] = useState(false);
   const { currentUser } = useAuth();
   const isHost = Boolean(currentUser && room?.hostId && currentUser.uid === room.hostId);
 
@@ -58,7 +60,6 @@ export default function TablePage() {
   const lastSpokenRef = useRef('');
   useEffect(() => {
     if (!voiceEnabled || !commentary?.length) return;
-    // Pick the highest priority comment
     const priorityOrder: Record<string, number> = { high: 3, medium: 2, low: 1 };
     const sorted = [...commentary].sort(
       (a, b) => (priorityOrder[b.priority] ?? 0) - (priorityOrder[a.priority] ?? 0),
@@ -91,6 +92,8 @@ export default function TablePage() {
     }
   }, [tradingPhase, gamePhase]);
 
+  const ev = myCard != null ? computeEV(myCard) : null;
+
   if (!id) {
     return (
       <main className="page">
@@ -102,6 +105,7 @@ export default function TablePage() {
   }
 
   const noticeMessage = roomError || (roomStatus === 'loading' && !room ? 'Connecting to table...' : null);
+  const isLoadingRoom = roomStatus === 'loading' && !room;
 
   const handleStartRound = async () => {
     if (!id || !currentUser) return;
@@ -130,6 +134,33 @@ export default function TablePage() {
     }
   };
 
+  const handleAddBot = async () => {
+    if (!id || !currentUser) return;
+    setAddingBot(true);
+    setActionError(null);
+    try {
+      const token = await currentUser.getIdToken();
+      const response = await fetch(`${API_BASE}/api/room/${id}/bot`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error || 'Unable to add bot');
+      }
+      setActionMessage('Bot added to the table!');
+      setTimeout(() => setActionMessage(null), 2000);
+    } catch (err) {
+      console.error('Failed to add bot', err);
+      setActionError(err instanceof Error ? err.message : 'Unable to add bot');
+    } finally {
+      setAddingBot(false);
+    }
+  };
+
   return (
     <main className="page" aria-labelledby="table-title">
       {/* Settlement overlay */}
@@ -151,14 +182,14 @@ export default function TablePage() {
       </header>
 
       {(noticeMessage || actionMessage || actionError) && (
-        <div className="stack" style={{ marginBottom: 16 }}>
+        <div className="stack">
           {noticeMessage && (
             <div className={`inline-notice ${roomError ? 'inline-notice--error' : 'inline-notice--info'}`} role="status">
               {noticeMessage}
             </div>
           )}
           {actionMessage && (
-            <div className="inline-notice inline-notice--info" role="status">
+            <div className="inline-notice inline-notice--success" role="status">
               {actionMessage}
             </div>
           )}
@@ -170,83 +201,98 @@ export default function TablePage() {
         </div>
       )}
 
-      <div style={{ opacity: roomStatus === 'loading' ? 0.7 : 1 }}>
-        {/* Phase indicator */}
-        <PhaseIndicator />
-
-        {/* Community cards */}
-        <div style={{ marginTop: 16 }}>
-          <CommunityCards />
-        </div>
-
-        {/* Main content grid */}
-        <div
-          className="grid grid--sidebar"
-          style={{ alignItems: 'start', marginTop: 16 }}
-        >
-          {/* Left column: order book + order form */}
-          <div className="grid" style={{ gap: 16 }}>
-            <OrderBookDisplay roomId={id} />
-            <OrderForm
-              roomId={id}
-              disabled={!isTradingActive}
-              myCardValue={myCard}
-            />
-
-            {/* Host controls */}
-            {isHost && !isTradingActive && tradingPhase !== 'finished' && (
-              <section className="card" aria-label="Host controls">
-                <button
-                  type="button"
-                  className="button button--primary"
-                  onClick={handleStartRound}
-                  disabled={startingRound}
-                  style={{ width: '100%' }}
-                >
-                  {startingRound ? 'Launching...' : 'Start Round'}
-                </button>
-              </section>
-            )}
-
-            {/* Voice action buttons */}
-            <section className="card" aria-label="Voice actions">
-              <div className="section-heading">
-                <h3>Table Actions</h3>
-              </div>
-              <div className="page__actions" style={{ flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="button button--neutral"
-                  onClick={() => queueVoice('Place your bets, traders!')}
-                >
-                  Call for bets
-                </button>
-                <button
-                  type="button"
-                  className="button button--neutral"
-                  onClick={() => playCharacterReaction('close_call')}
-                >
-                  Close call
-                </button>
-                <button
-                  type="button"
-                  className="button button--neutral"
-                  onClick={() => announceEvent('round.reveal')}
-                >
-                  Reveal cards
-                </button>
-              </div>
-            </section>
+      {/* Loading skeleton */}
+      {isLoadingRoom ? (
+        <div className="grid" style={{ gap: 16 }}>
+          <div className="skeleton-block" style={{ height: 80 }} />
+          <div className="skeleton-block" style={{ height: 120 }} />
+          <div className="grid grid--sidebar" style={{ alignItems: 'start' }}>
+            <div className="grid" style={{ gap: 16 }}>
+              <div className="skeleton-block" style={{ height: 300 }} />
+              <div className="skeleton-block" style={{ height: 200 }} />
+            </div>
+            <div className="grid" style={{ gap: 16 }}>
+              <div className="skeleton-block" style={{ height: 200 }} />
+              <div className="skeleton-block" style={{ height: 180 }} />
+            </div>
           </div>
-
-          {/* Right column: seats, trade tape, voice */}
-          <aside className="grid" style={{ gap: 16 }} aria-label="Table info">
-            <SeatAvatars />
-            <TradeTape />
-            <VoiceControls className="table-voice-controls" />
-          </aside>
         </div>
-      </div>
+      ) : (
+        <>
+          {/* YOUR CARD -- the biggest, most prominent element during trading */}
+          {myCard != null && (
+            <div className="my-card-hero">
+              <span className="my-card-hero__label">Your Hidden Card</span>
+              <span className="my-card-hero__value">{myCard}</span>
+              {ev != null && (
+                <span className="my-card-hero__ev">
+                  Expected total ~ {ev.toFixed(1)}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Phase indicator */}
+          <PhaseIndicator />
+
+          {/* Community cards */}
+          <CommunityCards />
+
+          {/* Main content grid */}
+          <div
+            className="grid grid--sidebar"
+            style={{ alignItems: 'start' }}
+          >
+            {/* Left column: order book + order form */}
+            <div className="grid" style={{ gap: 16 }}>
+              <OrderBookDisplay roomId={id} />
+              <OrderForm
+                roomId={id}
+                disabled={!isTradingActive}
+                myCardValue={myCard}
+              />
+
+              {/* Host controls */}
+              {isHost && (
+                <section className="card" aria-label="Host controls">
+                  <div className="section-heading" style={{ marginBottom: 12 }}>
+                    <h3>Host Controls</h3>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {!isTradingActive && tradingPhase !== 'finished' && (
+                      <button
+                        type="button"
+                        className="button button--primary"
+                        onClick={handleStartRound}
+                        disabled={startingRound}
+                        style={{ flex: 1 }}
+                      >
+                        {startingRound ? 'Launching...' : 'Start Round'}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="button button--neutral"
+                      onClick={handleAddBot}
+                      disabled={addingBot}
+                      style={{ flex: 1 }}
+                    >
+                      {addingBot ? 'Adding...' : 'Add Bot'}
+                    </button>
+                  </div>
+                </section>
+              )}
+            </div>
+
+            {/* Right column: seats, trade tape, voice */}
+            <aside className="grid" style={{ gap: 16 }} aria-label="Table info">
+              <SeatAvatars />
+              <TradeTape />
+              <VoiceControlsMini />
+            </aside>
+          </div>
+        </>
+      )}
     </main>
   );
 }

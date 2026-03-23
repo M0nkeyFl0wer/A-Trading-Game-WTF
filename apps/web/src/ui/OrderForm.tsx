@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { computeEV } from '@trading-game/shared';
 import { useAuth } from '../contexts/AuthContext';
 import { useGameStore } from '../store';
 import { voiceService } from '../lib/elevenlabs';
@@ -48,8 +47,11 @@ export default function OrderForm({ roomId, disabled, myCardValue }: OrderFormPr
         throw new Error(payload?.error || 'Unable to place order');
       }
 
-      setSuccess(`${side === 'bid' ? 'Bid' : 'Ask'} placed at ${price}`);
-      setTimeout(() => setSuccess(null), 2000);
+      setSuccess(side === 'bid'
+        ? `Bet placed: total will be HIGHER than ${price}`
+        : `Bet placed: total will be LOWER than ${price}`
+      );
+      setTimeout(() => setSuccess(null), 2500);
 
       if (voiceEnabled) {
         voiceService
@@ -64,31 +66,26 @@ export default function OrderForm({ roomId, disabled, myCardValue }: OrderFormPr
     }
   };
 
-  const ev = myCardValue != null ? computeEV(myCardValue) : null;
-
   return (
-    <section className="card" aria-label="Order form">
+    <section className="card" aria-label="Place your bet">
       <div className="section-heading">
-        <h3>Place Order</h3>
+        <h3>Place Your Bet</h3>
       </div>
 
-      {myCardValue != null && (
-        <div
-          style={{
-            padding: '8px 12px',
-            marginBottom: 12,
-            background: 'rgba(99, 102, 241, 0.15)',
-            borderRadius: 8,
-            fontSize: '0.85rem',
-            color: 'var(--text-secondary)',
-          }}
-        >
-          Your card: <strong style={{ color: 'var(--text-primary)' }}>{myCardValue}</strong>
-          {ev != null && <> &middot; EV ~ <strong style={{ color: 'var(--text-primary)' }}>{ev.toFixed(1)}</strong></>}
-        </div>
-      )}
+      {/* Plain-language explanation */}
+      <p style={{
+        fontSize: '0.82rem',
+        color: 'var(--text-secondary)',
+        margin: '8px 0 14px',
+        lineHeight: 1.5,
+      }}>
+        {side === 'bid'
+          ? `You think the total will be HIGHER than ${price}. If it is, you profit.`
+          : `You think the total will be LOWER than ${price}. If it is, you profit.`
+        }
+      </p>
 
-      {/* Side toggle */}
+      {/* Side toggle -- plain language */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <button
           type="button"
@@ -96,7 +93,7 @@ export default function OrderForm({ roomId, disabled, myCardValue }: OrderFormPr
           disabled={disabled}
           style={{
             flex: 1,
-            padding: '10px 16px',
+            padding: '12px 16px',
             border: side === 'bid' ? '2px solid #22c55e' : '2px solid rgba(148,163,184,0.3)',
             borderRadius: 8,
             background: side === 'bid' ? 'rgba(34, 197, 94, 0.2)' : 'transparent',
@@ -104,9 +101,13 @@ export default function OrderForm({ roomId, disabled, myCardValue }: OrderFormPr
             fontWeight: 600,
             cursor: disabled ? 'not-allowed' : 'pointer',
             transition: 'all 0.2s',
+            fontSize: '0.9rem',
           }}
         >
-          BID (Buy)
+          HIGHER
+          <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: 400, marginTop: 2 }}>
+            Buy / Bid
+          </span>
         </button>
         <button
           type="button"
@@ -114,7 +115,7 @@ export default function OrderForm({ roomId, disabled, myCardValue }: OrderFormPr
           disabled={disabled}
           style={{
             flex: 1,
-            padding: '10px 16px',
+            padding: '12px 16px',
             border: side === 'ask' ? '2px solid #ef4444' : '2px solid rgba(148,163,184,0.3)',
             borderRadius: 8,
             background: side === 'ask' ? 'rgba(239, 68, 68, 0.2)' : 'transparent',
@@ -122,16 +123,20 @@ export default function OrderForm({ roomId, disabled, myCardValue }: OrderFormPr
             fontWeight: 600,
             cursor: disabled ? 'not-allowed' : 'pointer',
             transition: 'all 0.2s',
+            fontSize: '0.9rem',
           }}
         >
-          ASK (Sell)
+          LOWER
+          <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: 400, marginTop: 2 }}>
+            Sell / Ask
+          </span>
         </button>
       </div>
 
       <form className="form-grid" onSubmit={handleSubmit} style={{ gap: 12 }}>
         {/* Price input with +/- buttons */}
         <label htmlFor="order-price" style={{ marginBottom: 0 }}>
-          Price
+          Target price
           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             <button
               type="button"
@@ -167,7 +172,7 @@ export default function OrderForm({ roomId, disabled, myCardValue }: OrderFormPr
 
         {/* Quantity input */}
         <label htmlFor="order-qty" style={{ marginBottom: 0 }}>
-          Quantity
+          Contracts
           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             <button
               type="button"
@@ -232,7 +237,10 @@ export default function OrderForm({ roomId, disabled, myCardValue }: OrderFormPr
         >
           {submitting
             ? 'Placing...'
-            : `Place ${side === 'bid' ? 'Bid' : 'Ask'} at ${price}`}
+            : side === 'bid'
+              ? `Bet HIGHER than ${price}`
+              : `Bet LOWER than ${price}`
+          }
         </button>
       </form>
     </section>

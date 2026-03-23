@@ -49,7 +49,6 @@ export default function PhaseIndicator() {
     };
     update();
 
-    // Estimate total duration from current remaining on first tick
     const initialLeft = Math.max(0, Math.ceil((phaseEndsAt - Date.now()) / 1000));
     if (initialLeft > 0) {
       setTotalDuration(initialLeft);
@@ -60,13 +59,13 @@ export default function PhaseIndicator() {
   }, [phaseEndsAt]);
 
   const progress = totalDuration > 0 ? Math.max(0, Math.min(1, remaining / totalDuration)) : 0;
+  const isUrgent = remaining > 0 && remaining <= 5;
 
-  // Cards revealed per phase: blind=0, flop=first card revealed, turn=second card
+  // Cards revealed per phase
   const cardsForPhase = (step: string): number[] => {
     if (step === 'blind') return [];
     if (step === 'flop') return revealedCards.slice(0, 1);
     if (step === 'turn') return revealedCards.slice(0, 2);
-    // settlement shows all 3
     return revealedCards;
   };
 
@@ -171,9 +170,9 @@ export default function PhaseIndicator() {
         })}
       </div>
 
-      {/* Timer bar */}
+      {/* Timer bar with urgency */}
       {tradingPhase && tradingPhase !== 'waiting' && tradingPhase !== 'finished' && (
-        <div>
+        <div className={isUrgent ? 'timer-urgent' : ''}>
           <div
             style={{
               width: '100%',
@@ -192,7 +191,7 @@ export default function PhaseIndicator() {
               style={{
                 height: '100%',
                 borderRadius: 3,
-                background: remaining <= 5
+                background: isUrgent
                   ? 'linear-gradient(90deg, #ef4444, #f87171)'
                   : 'linear-gradient(90deg, #818cf8, #6366f1)',
               }}
@@ -200,15 +199,18 @@ export default function PhaseIndicator() {
               transition={{ ease: 'linear', duration: 0.5 }}
             />
           </div>
-          <div style={{
-            textAlign: 'center',
-            marginTop: 6,
-            fontSize: '0.8rem',
-            color: remaining <= 5 ? '#ef4444' : 'var(--text-secondary)',
-            fontWeight: remaining <= 5 ? 700 : 400,
-            fontFamily: 'monospace',
-          }}>
-            {remaining}s
+          <div
+            className={isUrgent ? 'timer-urgent-text' : ''}
+            style={{
+              textAlign: 'center',
+              marginTop: 6,
+              fontSize: '0.8rem',
+              color: isUrgent ? '#ef4444' : 'var(--text-secondary)',
+              fontWeight: isUrgent ? 700 : 400,
+              fontFamily: 'monospace',
+            }}
+          >
+            {remaining}s{isUrgent ? ' - HURRY!' : ''}
           </div>
         </div>
       )}

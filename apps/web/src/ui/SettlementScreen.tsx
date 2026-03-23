@@ -13,6 +13,12 @@ const pnlFmt = (value: number) => {
   return `${prefix}${balanceFmt.format(value)}`;
 };
 
+const pnlClass = (value: number) => {
+  if (value > 0) return 'pnl-positive';
+  if (value < 0) return 'pnl-negative';
+  return 'pnl-zero';
+};
+
 export default function SettlementScreen() {
   const tradingPhase = useGameStore((state) => state.tradingPhase);
   const settlementTotal = useGameStore((state) => state.settlementTotal);
@@ -20,18 +26,25 @@ export default function SettlementScreen() {
   const pnl = useGameStore((state) => state.pnl);
   const players = useGameStore((state) => state.players);
   const [countdown, setCountdown] = useState(10);
+  const [showTotal, setShowTotal] = useState(false);
 
   const isVisible = tradingPhase === 'finished';
 
   useEffect(() => {
     if (!isVisible) {
       setCountdown(10);
+      setShowTotal(false);
       return;
     }
+    // Delay showing the total for a reveal moment
+    const totalTimer = setTimeout(() => setShowTotal(true), 900);
     const interval = setInterval(() => {
       setCountdown((prev) => Math.max(0, prev - 1));
     }, 1000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(totalTimer);
+    };
   }, [isVisible]);
 
   // Sort players by PnL descending
@@ -88,13 +101,14 @@ export default function SettlementScreen() {
               </div>
             </div>
 
-            {/* Community cards */}
+            {/* Community cards with flip animation */}
             <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 16 }}>
               {Array.from({ length: 3 }).map((_, idx) => {
                 const value = revealedCards[idx];
                 return (
                   <div
                     key={idx}
+                    className="settlement-card-flip"
                     style={{
                       width: 60,
                       height: 84,
@@ -107,6 +121,7 @@ export default function SettlementScreen() {
                       background: 'linear-gradient(135deg, #1e293b, #334155)',
                       border: '2px solid rgba(148, 163, 184, 0.3)',
                       color: '#f1f5f9',
+                      perspective: 600,
                     }}
                   >
                     {value != null ? value : '?'}
@@ -115,18 +130,23 @@ export default function SettlementScreen() {
               })}
             </div>
 
-            {/* Total */}
+            {/* Total with count-up reveal */}
             {settlementTotal != null && (
-              <div style={{
-                textAlign: 'center',
-                marginBottom: 20,
-                padding: '10px 16px',
-                background: 'rgba(99, 102, 241, 0.1)',
-                borderRadius: 10,
-                border: '1px solid rgba(99, 102, 241, 0.2)',
-              }}>
+              <div
+                className={showTotal ? 'settlement-total-reveal' : ''}
+                style={{
+                  textAlign: 'center',
+                  marginBottom: 20,
+                  padding: '10px 16px',
+                  background: 'rgba(99, 102, 241, 0.1)',
+                  borderRadius: 10,
+                  border: '1px solid rgba(99, 102, 241, 0.2)',
+                  opacity: showTotal ? 1 : 0,
+                  transition: 'opacity 0.4s',
+                }}
+              >
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total</span>
-                <div style={{ fontSize: '2rem', fontWeight: 800, color: '#e0e7ff' }}>{settlementTotal}</div>
+                <div style={{ fontSize: '2.5rem', fontWeight: 800, color: '#e0e7ff' }}>{settlementTotal}</div>
               </div>
             )}
 
@@ -148,12 +168,15 @@ export default function SettlementScreen() {
                 <span style={{ textAlign: 'right' }}>Card</span>
                 <span style={{ textAlign: 'right' }}>Net PnL</span>
               </div>
-              {sortedPlayers.map((player) => {
+              {sortedPlayers.map((player, rank) => {
                 const playerPnl = pnl?.[player.id] ?? 0;
                 const isWinner = player.id === winnerId && playerPnl > 0;
                 return (
-                  <div
+                  <motion.div
                     key={player.id}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.1 * rank }}
                     style={{
                       display: 'grid',
                       gridTemplateColumns: '1fr auto auto',
@@ -172,15 +195,17 @@ export default function SettlementScreen() {
                     <span style={{ textAlign: 'right', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
                       {player.cardValue != null ? player.cardValue : '--'}
                     </span>
-                    <span style={{
-                      textAlign: 'right',
-                      fontFamily: 'monospace',
-                      fontWeight: 700,
-                      color: playerPnl > 0 ? '#22c55e' : playerPnl < 0 ? '#ef4444' : 'var(--text-secondary)',
-                    }}>
+                    <span
+                      className={pnlClass(playerPnl)}
+                      style={{
+                        textAlign: 'right',
+                        fontFamily: 'monospace',
+                        fontWeight: 700,
+                      }}
+                    >
                       {pnlFmt(playerPnl)}
                     </span>
-                  </div>
+                  </motion.div>
                 );
               })}
             </div>
