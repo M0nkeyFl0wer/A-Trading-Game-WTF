@@ -6,6 +6,7 @@ import { PHASE_SEQUENCE } from '@trading-game/shared';
 import { gameEngine, type RoomGameState } from './gameEngine';
 import type { RoomRecord, RoomPlayer, RoomStatus } from './roomService';
 import { RoomServiceError } from './roomService';
+import { logger } from '../lib/logger';
 
 const createRoomId = () => `room_${randomUUID().slice(0, 8).toUpperCase()}`;
 
@@ -593,7 +594,7 @@ export class SqliteRoomService {
 
     timers.phaseTransition = setTimeout(() => {
       this.handlePhaseEnd(roomId, phaseIndex).catch((err) =>
-        console.error('Phase transition failed', err),
+        logger.error({ err, roomId }, 'phase transition failed'),
       );
     }, delay);
   }
@@ -692,7 +693,7 @@ export class SqliteRoomService {
 
     timers.nextRound = setTimeout(() => {
       this.beginAutomatedRound(roomId).catch((error) => {
-        console.error('Failed to start next round', error);
+        logger.error({ err: error, roomId }, 'failed to start next round');
       });
     }, NEXT_ROUND_DELAY_MS);
   }
@@ -746,29 +747,160 @@ export class SqliteRoomService {
 
   /**
    * On startup, restore timers for rooms in active trading phases.
-   * Calculates remaining time from phaseEndsAt in the persisted gameState.
+   * Cascades through multiple missed phases if the server was down long enough,
+   * and auto-starts next rounds for rooms stuck in 'finished' state.
    */
-  private restoreActiveRounds(): void {
-    const rows = this.stmts.getActivePhaseRooms.all() as RoomRow[];
-    const now = Date.now();
+  private recovered = false;
 
-    for (const row of rows) {
+  private restoreActiveRounds(): void {
+    if (this.recovered) return;
+    this.recovered = true;
+
+    const now = Date.now();
+    let settled = 0;
+    let advanced = 0;
+    let resumed = 0;
+    let autoStarted = 0;
+
+    // -----------------------------------------------------------------------
+    // 1. Recover rooms in active trading phases (blind, flop, turn)
+    // -----------------------------------------------------------------------
+    const activeRows = this.stmts.getActivePhaseRooms.all() as RoomRow[];
+
+    for (const row of activeRows) {
       const gs: RoomGameState | null = row.game_state ? JSON.parse(row.game_state) : null;
       if (!gs?.phaseEndsAt) continue;
 
-      // Determine which phase index this room is in
-      const phaseIndex = PHASE_SEQUENCE.findIndex((p) => p.phase === gs.phase);
-      if (phaseIndex < 0) continue;
+      const currentPhaseIndex = PHASE_SEQUENCE.findIndex((p) => p.phase === gs.phase);
+      if (currentPhaseIndex < 0) continue;
 
       if (gs.phaseEndsAt > now) {
-        // Still time left -- schedule with remaining time
-        this.schedulePhaseTransition(row.id, phaseIndex);
-      } else {
-        // Phase already expired while server was down -- advance immediately
-        this.handlePhaseEnd(row.id, phaseIndex).catch((err) =>
-          console.error('Failed to restore phase for room', row.id, err),
+        // Phase still active -- just resume the timer
+        this.schedulePhaseTransition(row.id, currentPhaseIndex);
+        resumed++;
+        continue;
+      }
+
+      // Phase expired. Calculate how many phases we missed.
+      let elapsed = now - gs.phaseEndsAt;
+      let nextIndex = currentPhaseIndex + 1;
+
+      // Skip through any fully-elapsed subsequent phases
+      while (nextIndex < PHASE_SEQUENCE.length && elapsed > PHASE_SEQUENCE[nextIndex].durationMs) {
+        elapsed -= PHASE_SEQUENCE[nextIndex].durationMs;
+        nextIndex++;
+      }
+
+      if (nextIndex >= PHASE_SEQUENCE.length) {
+        // All trading phases elapsed -- settle immediately
+        logger.info(
+          { roomId: row.id, missedPhases: nextIndex - currentPhaseIndex },
+          'settling room after server restart',
         );
+        this.settleRound(row.id).catch((err) =>
+          logger.error({ err, roomId: row.id }, 'failed to settle room on recovery'),
+        );
+        settled++;
+      } else {
+        // Advance to the correct phase and resume
+        logger.info(
+          { roomId: row.id, from: gs.phase, to: PHASE_SEQUENCE[nextIndex].phase },
+          'advancing room after server restart',
+        );
+        this.advanceThroughMissedPhases(row.id, currentPhaseIndex, nextIndex).catch((err) =>
+          logger.error({ err, roomId: row.id }, 'failed to recover room phases'),
+        );
+        advanced++;
       }
     }
+
+    // -----------------------------------------------------------------------
+    // 2. Recover rooms stuck in 'finished' that should auto-start next round
+    // -----------------------------------------------------------------------
+    const finishedRows = this.db
+      .prepare("SELECT * FROM rooms WHERE status = 'finished'")
+      .all() as RoomRow[];
+
+    for (const row of finishedRows) {
+      const gs: RoomGameState | null = row.game_state ? JSON.parse(row.game_state) : null;
+      if (!gs) continue;
+
+      // Use updatedAt from game state or row to determine how long it's been finished
+      const finishedAt = gs.updatedAt ?? row.updated_at;
+      const timeSinceFinish = now - finishedAt;
+
+      if (timeSinceFinish > NEXT_ROUND_DELAY_MS) {
+        // Check if room has enough players
+        const players = this.stmts.getPlayers.all(row.id) as PlayerRow[];
+        if (players.length >= 2) {
+          logger.info({ roomId: row.id }, 'auto-starting next round after server restart');
+          this.beginAutomatedRound(row.id).catch((err) =>
+            logger.error({ err, roomId: row.id }, 'failed to auto-start round on recovery'),
+          );
+          autoStarted++;
+        }
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // 3. Log recovery summary
+    // -----------------------------------------------------------------------
+    logger.info(
+      {
+        activeRooms: activeRows.length,
+        finishedRooms: finishedRows.length,
+        settled,
+        advanced,
+        resumed,
+        autoStarted,
+      },
+      'room recovery complete',
+    );
+  }
+
+  /**
+   * Advance a room through multiple missed phases (e.g., server was down for
+   * longer than one phase duration). Emits updates for each intermediate phase
+   * and schedules the timer for the final target phase with remaining time.
+   */
+  private async advanceThroughMissedPhases(
+    roomId: string,
+    fromIndex: number,
+    toIndex: number,
+  ): Promise<void> {
+    // Advance through each missed phase
+    for (let i = fromIndex; i < toIndex; i++) {
+      const advancedRoom = this.db.transaction(() => {
+        let room: RoomRecord;
+        try {
+          room = this.loadRoom(roomId);
+        } catch {
+          return null;
+        }
+
+        const newState = gameEngine.advancePhase(room);
+        if (!newState) return null;
+
+        const updated: RoomRecord = {
+          ...room,
+          status: newState.phase as RoomStatus,
+          gameState: newState,
+          updatedAt: Date.now(),
+        };
+        this.persistRoom(updated);
+        return updated;
+      })();
+
+      if (advancedRoom) {
+        emitRoomUpdated(advancedRoom);
+      } else {
+        // advancePhase returned null -- settle instead
+        await this.settleRound(roomId);
+        return;
+      }
+    }
+
+    // Schedule the timer for the current phase with remaining time
+    this.schedulePhaseTransition(roomId, toIndex);
   }
 }
