@@ -13,6 +13,7 @@ import { getDatabase, closeDatabase } from './services/database';
 import { botService } from './services/botService';
 import { commentatorService } from './services/commentatorService';
 import './services/auditService';  // auto-subscribes to game events on import
+import './services/kgOrderListener';  // auto-subscribes to game events for KG phase summaries
 
 import rootRoutes from './routes/index';
 import authRoutes from './routes/auth';

@@ -1,6 +1,8 @@
 import type { TradingAgent, AgentContext, AgentResponse, AgentActionType } from './types';
 import type { RoomRecord, RoomPlayer } from '../services/roomService';
+import type { TradingPhase } from '@trading-game/shared';
 import { roomService, RoomServiceError } from '../services/roomService';
+import { knowledgeGraph } from '../services/knowledgeGraph';
 import { logger } from '../lib/logger';
 
 // ---------------------------------------------------------------------------
@@ -189,6 +191,14 @@ export class FloorCoordinator {
         );
       }
     }
+
+    // Record order-book patterns for every agent that responded this tick.
+    // Wrapped in try/catch so KG failures never affect gameplay.
+    try {
+      this.recordTickPatterns(roomId, phase as TradingPhase, responses, gs);
+    } catch (err) {
+      logger.debug({ err, roomId }, 'kg: tick pattern recording failed (non-fatal)');
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -263,6 +273,72 @@ export class FloorCoordinator {
           logger.warn({ err, agent: agent.name, action: action.type }, 'agent action failed');
         }
       }
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // KG pattern recording
+  // -----------------------------------------------------------------------
+
+  /**
+   * After each tick, record per-agent order-book patterns into the
+   * knowledge graph. This data feeds getPlayerOrderProfile() for
+   * future bot decision-making.
+   */
+  private recordTickPatterns(
+    roomId: string,
+    phase: TradingPhase,
+    responses: Array<{
+      agent: TradingAgent;
+      player: RoomPlayer;
+      response: AgentResponse;
+    }>,
+    gs: NonNullable<RoomRecord['gameState']>,
+  ): void {
+    const orders = gs.orders ?? [];
+    const trades = gs.matchedTrades ?? [];
+
+    for (const { agent, player, response } of responses) {
+      // Count this agent's open orders by side
+      const myOrders = orders.filter(o => o.playerId === agent.id);
+      const openBids = myOrders.filter(o => o.side === 'bid' && (o.status === 'open' || o.status === 'partial'));
+      const openAsks = myOrders.filter(o => o.side === 'ask' && (o.status === 'open' || o.status === 'partial'));
+      const cancelledOrders = myOrders.filter(o => o.status === 'cancelled');
+
+      // Compute average prices (0 if none)
+      const avgBid = openBids.length > 0
+        ? openBids.reduce((s, o) => s + o.price, 0) / openBids.length
+        : 0;
+      const avgAsk = openAsks.length > 0
+        ? openAsks.reduce((s, o) => s + o.price, 0) / openAsks.length
+        : 0;
+
+      // Net position from matched trades
+      let netPosition = 0;
+      for (const trade of trades) {
+        if (trade.buyerId === agent.id) netPosition += trade.quantity;
+        if (trade.sellerId === agent.id) netPosition -= trade.quantity;
+      }
+
+      // Estimate fair value from the midpoint of the agent's own orders,
+      // falling back to the last trade price
+      let fairValueEstimate = 0;
+      if (avgBid > 0 && avgAsk > 0) {
+        fairValueEstimate = (avgBid + avgAsk) / 2;
+      } else if (trades.length > 0) {
+        fairValueEstimate = trades[trades.length - 1].price;
+      }
+
+      knowledgeGraph.recordOrderPattern(agent.id, roomId, phase, {
+        bidCount: openBids.length,
+        askCount: openAsks.length,
+        avgBidPrice: Math.round(avgBid * 100) / 100,
+        avgAskPrice: Math.round(avgAsk * 100) / 100,
+        cancelCount: cancelledOrders.length,
+        netPosition,
+        activation: response.activation,
+        fairValueEstimate: Math.round(fairValueEstimate * 100) / 100,
+      });
     }
   }
 

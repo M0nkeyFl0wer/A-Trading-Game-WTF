@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import type { TradingPhase } from '@trading-game/shared';
 import { getDatabase } from './database';
 import { logger } from '../lib/logger';
 
@@ -81,6 +82,32 @@ export interface RoundResult {
   isWinner: boolean;
 }
 
+export interface OrderPatternData {
+  bidCount: number;
+  askCount: number;
+  avgBidPrice: number;
+  avgAskPrice: number;
+  cancelCount: number;
+  netPosition: number;
+  activation: number;
+  fairValueEstimate: number;
+}
+
+export interface PhaseSummaryData {
+  totalTrades: number;
+  avgPrice: number;
+  priceRange: [number, number];
+  volumeByPlayer: Record<string, number>;
+}
+
+export interface PlayerOrderProfile {
+  avgSpread: number;
+  bidAskRatio: number;        // >1 = buy-biased, <1 = sell-biased
+  avgActivation: number;
+  cancelRate: number;          // cancels / total orders
+  phasePreference: TradingPhase | null;  // which phase they're most active in
+}
+
 // ---------------------------------------------------------------------------
 // Prepared statement cache – built lazily, once per database connection
 // ---------------------------------------------------------------------------
@@ -101,6 +128,7 @@ interface Statements {
   getPatternEdges: Database.Statement;
   getRoomTradeEdges: Database.Statement;
   getRecentRoomPrices: Database.Statement;
+  getOrderPatternsByPlayer: Database.Statement;
 }
 
 let stmts: Statements | null = null;
@@ -200,6 +228,15 @@ function prepareStatements(db: Database.Database): Statements {
       FROM kg_edges
       WHERE source_id = ? AND relation IN ('bought', 'sold')
       ORDER BY created_at DESC
+      LIMIT ?
+    `),
+
+    getOrderPatternsByPlayer: db.prepare(`
+      SELECT e.properties
+      FROM kg_entities e
+      INNER JOIN kg_edges ed ON ed.target_id = e.id
+      WHERE ed.source_id = ? AND ed.relation = 'observed_order_pattern' AND e.type = 'order_pattern'
+      ORDER BY e.updated_at DESC
       LIMIT ?
     `),
   };
@@ -588,6 +625,147 @@ class KnowledgeGraphService {
   ): void {
     const type = isBot ? 'bot' : 'player';
     this.upsertEntity(id, type, name, { character, isBot });
+  }
+
+  // ---- Order-book pattern recording -------------------------------------
+
+  /**
+   * Record an agent's order-book behavior for a single tick.
+   * Upserts a per-player/room/phase entity and links it to the player.
+   */
+  recordOrderPattern(
+    playerId: string,
+    roomId: string,
+    phase: TradingPhase,
+    pattern: OrderPatternData,
+  ): void {
+    try {
+      // Ensure the player entity exists
+      this.upsertEntity(playerId, 'player', playerId);
+
+      // Upsert the pattern entity (one per player/room/phase combo, updated each tick)
+      const patternId = `pattern_${playerId}_${roomId}_${phase}`;
+      this.upsertEntity(patternId, 'order_pattern', `${playerId} ${phase} pattern`, {
+        ...pattern,
+        roomId,
+        phase,
+        lastUpdated: Date.now(),
+      });
+
+      // Link player -> observed_order_pattern -> pattern entity
+      // Use addEdge so we accumulate a history of observations over time
+      this.addEdge(playerId, patternId, 'observed_order_pattern', pattern.activation, {
+        roomId,
+        phase,
+        bidCount: pattern.bidCount,
+        askCount: pattern.askCount,
+        netPosition: pattern.netPosition,
+        timestamp: Date.now(),
+      });
+    } catch (err) {
+      logger.error({ err, playerId, roomId, phase }, 'kg: failed to record order pattern');
+    }
+  }
+
+  /**
+   * Record a phase-level summary after a phase ends.
+   * Creates a standalone entity with trade/price stats for the phase.
+   */
+  recordPhaseSummary(
+    roomId: string,
+    roundNumber: number,
+    phase: TradingPhase,
+    summary: PhaseSummaryData,
+  ): void {
+    try {
+      const summaryId = `phase_${roomId}_${roundNumber}_${phase}`;
+      this.upsertEntity(summaryId, 'phase_summary', `${roomId} R${roundNumber} ${phase}`, {
+        roomId,
+        roundNumber,
+        phase,
+        ...summary,
+        recordedAt: Date.now(),
+      });
+
+      // Link room -> had_phase -> summary
+      this.upsertEntity(roomId, 'room', roomId);
+      this.addEdge(roomId, summaryId, 'had_phase', summary.totalTrades, {
+        roundNumber,
+        phase,
+        avgPrice: summary.avgPrice,
+      });
+    } catch (err) {
+      logger.error({ err, roomId, roundNumber, phase }, 'kg: failed to record phase summary');
+    }
+  }
+
+  /**
+   * Get a player's historical trading profile from KG order-pattern data.
+   * Aggregates across all recorded order patterns to produce stats
+   * useful for bot decision-making.
+   */
+  getPlayerOrderProfile(playerId: string): PlayerOrderProfile | null {
+    try {
+      const rows = this.s.getOrderPatternsByPlayer.all(playerId, 200) as any[];
+      if (rows.length === 0) return null;
+
+      let totalBids = 0;
+      let totalAsks = 0;
+      let totalCancels = 0;
+      let totalOrders = 0;
+      let activationSum = 0;
+      let spreadSum = 0;
+      let spreadCount = 0;
+
+      // Track activity per phase
+      const phaseActivity: Record<string, number> = {};
+
+      for (const row of rows) {
+        const props = row.properties ? JSON.parse(row.properties) : null;
+        if (!props) continue;
+
+        totalBids += props.bidCount ?? 0;
+        totalAsks += props.askCount ?? 0;
+        totalCancels += props.cancelCount ?? 0;
+        totalOrders += (props.bidCount ?? 0) + (props.askCount ?? 0) + (props.cancelCount ?? 0);
+        activationSum += props.activation ?? 0;
+
+        // Compute spread from avg bid/ask if both present
+        if (props.avgBidPrice > 0 && props.avgAskPrice > 0) {
+          spreadSum += props.avgAskPrice - props.avgBidPrice;
+          spreadCount++;
+        }
+
+        // Accumulate phase activity
+        const phase = props.phase as string;
+        if (phase) {
+          phaseActivity[phase] = (phaseActivity[phase] ?? 0) + (props.bidCount ?? 0) + (props.askCount ?? 0);
+        }
+      }
+
+      const patternCount = rows.length;
+
+      // Determine which phase has the most order activity
+      let phasePreference: TradingPhase | null = null;
+      let maxActivity = 0;
+      for (const [phase, count] of Object.entries(phaseActivity)) {
+        if (count > maxActivity) {
+          maxActivity = count;
+          phasePreference = phase as TradingPhase;
+        }
+      }
+
+      return {
+        avgSpread: spreadCount > 0 ? spreadSum / spreadCount : 0,
+        bidAskRatio: totalAsks > 0 ? totalBids / totalAsks : totalBids > 0 ? Infinity : 1,
+        avgActivation: patternCount > 0 ? activationSum / patternCount : 0,
+        cancelRate: totalOrders > 0 ? totalCancels / totalOrders : 0,
+        phasePreference,
+      };
+    } catch (err) {
+      logger.error({ err, playerId }, 'kg: failed to get player order profile');
+      return null;
+    }
   }
 
   // ---- Helpers -----------------------------------------------------------
