@@ -1,4 +1,4 @@
-import create from 'zustand';
+import { create } from 'zustand';
 import type { Order, MatchedTrade, TradingPhase } from '@trading-game/shared';
 import type { CharacterType } from './lib/characterVisuals';
 import { voiceService } from './lib/elevenlabs';

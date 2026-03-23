@@ -12,7 +12,7 @@ import { metrics } from './lib/metrics';
 import { getDatabase, closeDatabase } from './services/database';
 import { botService } from './services/botService';
 import { commentatorService } from './services/commentatorService';
-import './services/auditService';  // auto-subscribes to game events on import
+import { auditService } from './services/auditService';
 import './services/kgOrderListener';  // auto-subscribes to game events for KG phase summaries
 
 import rootRoutes from './routes/index';
@@ -59,7 +59,7 @@ const io = new SocketIOServer(server, {
 });
 
 // Initialize audit service (subscribes to game events, restores hash chain)
-// auditService auto-initializes on import
+auditService.init();
 
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '10mb' }));

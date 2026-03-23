@@ -8,6 +8,8 @@ import type { RoomRecord, RoomPlayer, RoomStatus } from './roomService';
 import { RoomServiceError } from './roomService';
 import { logger } from '../lib/logger';
 import { createSignedReceipt } from '../lib/signing';
+import { emitGameEvent } from '../lib/gameEvents';
+import { ledgerService } from './ledger';
 
 const createRoomId = () => `room_${randomUUID().slice(0, 8).toUpperCase()}`;
 
@@ -461,6 +463,12 @@ export class SqliteRoomService {
       return updatedRoom;
     })();
 
+    emitGameEvent('order_submit', roomId, updated.roundNumber, {
+      playerId,
+      side: order.side,
+      price: order.price,
+      quantity: order.quantity,
+    });
     emitRoomUpdated(updated);
     return updated;
   }
@@ -505,6 +513,7 @@ export class SqliteRoomService {
       return updatedRoom;
     })();
 
+    emitGameEvent('order_cancel', roomId, updated.roundNumber, { playerId, orderId });
     emitRoomUpdated(updated);
     return updated;
   }
@@ -561,6 +570,8 @@ export class SqliteRoomService {
       community_cards: JSON.stringify(gameState.communityCards),
       started_at: Date.now(),
     });
+
+    emitGameEvent('round_deal', room.id, roundNumber, { playerCount: room.players.length });
 
     return prepared;
   }
@@ -642,6 +653,9 @@ export class SqliteRoomService {
     })();
 
     if (advanced) {
+      const previousPhase = PHASE_SEQUENCE[phaseIndex]?.phase;
+      const newPhase = PHASE_SEQUENCE[nextIndex]?.phase;
+      emitGameEvent('phase_advance', roomId, advanced.roundNumber, { from: previousPhase, to: newPhase });
       emitRoomUpdated(advanced);
       this.schedulePhaseTransition(roomId, nextIndex);
     } else {
@@ -689,6 +703,17 @@ export class SqliteRoomService {
     })();
 
     if (finalized) {
+      const gs = finalized.gameState;
+      if (gs) {
+        emitGameEvent('settlement', roomId, finalized.roundNumber, {
+          settlementTotal: gs.settlementTotal,
+          pnl: gs.pnl,
+          matchedTrades: gs.matchedTrades,
+        });
+        if (gs.pnl) {
+          ledgerService.recordSettlement(roomId, finalized.roundNumber, gs.pnl);
+        }
+      }
       emitRoomUpdated(finalized);
       this.scheduleNextRound(roomId, finalized);
     }

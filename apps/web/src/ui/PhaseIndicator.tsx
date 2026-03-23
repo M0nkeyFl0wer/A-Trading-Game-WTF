@@ -11,7 +11,7 @@ const PHASE_LABELS: Record<string, string> = {
   settlement: 'Settlement',
 };
 
-const ALL_STEPS = [...PHASE_SEQUENCE, 'settlement'] as const;
+const ALL_STEPS = [...PHASE_SEQUENCE.map(p => p.phase), 'settlement'] as const;
 
 function getStepState(
   step: string,

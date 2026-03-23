@@ -146,7 +146,6 @@ export function useRoomState(roomId?: string) {
     if (!normalized) return;
 
     setRoom(normalized);
-    setPlayers(normalized.players);
     setGamePhase(mapStatusToPhase(normalized.status));
     setTradingPhase(mapStatusToTradingPhase(normalized.status));
 
@@ -157,8 +156,10 @@ export function useRoomState(roomId?: string) {
       setPhaseEndsAt(normalized.phaseEndsAt);
     }
 
-    // Extract order book data from gameState
+    // Extract order book data from gameState and merge card values into players
     const gs = payload?.gameState;
+    let playersToSet = normalized.players;
+
     if (gs) {
       if (Array.isArray(gs.orders)) {
         setOrders(gs.orders as Order[]);
@@ -170,15 +171,36 @@ export function useRoomState(roomId?: string) {
         setRevealedCommunityCards(gs.revealedCommunityCards as number[]);
       }
 
-      // Find own card value from playerCards
-      if (Array.isArray(gs.playerCards) && currentUser) {
-        const myEntry = gs.playerCards.find(
-          (c: any) => c?.id === currentUser.uid
-        );
-        if (myEntry && typeof myEntry.value === 'number') {
-          setMyCard(myEntry.value);
-        } else {
-          setMyCard(null);
+      // Merge card values from gameState.playerCards into player states
+      if (Array.isArray(gs.playerCards)) {
+        const cardMap = new Map<string, { value: number; revealed: boolean }>();
+        for (const pc of gs.playerCards) {
+          if (pc?.id) {
+            cardMap.set(String(pc.id), {
+              value: Number(pc.value ?? 0),
+              revealed: Boolean(pc.revealed),
+            });
+          }
+        }
+        if (cardMap.size > 0) {
+          playersToSet = normalized.players.map((p) => {
+            const card = cardMap.get(p.id);
+            return card
+              ? { ...p, cardValue: card.value, cardRevealed: card.revealed }
+              : p;
+          });
+        }
+
+        // Find own card value from playerCards
+        if (currentUser) {
+          const myEntry = gs.playerCards.find(
+            (c: any) => c?.id === currentUser.uid,
+          );
+          if (myEntry && typeof myEntry.value === 'number') {
+            setMyCard(myEntry.value);
+          } else {
+            setMyCard(null);
+          }
         }
       }
 
@@ -190,6 +212,8 @@ export function useRoomState(roomId?: string) {
         );
       }
     }
+
+    setPlayers(playersToSet);
 
     // Extract commentary from the payload (injected by the server)
     if (Array.isArray(payload?.commentary) && payload.commentary.length > 0) {

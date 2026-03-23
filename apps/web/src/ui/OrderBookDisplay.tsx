@@ -17,17 +17,19 @@ function aggregateOrders(orders: Order[], side: 'bid' | 'ask'): AggregatedLevel[
   const byPrice = new Map<number, AggregatedLevel>();
 
   for (const order of open) {
+    const remaining = order.quantity - order.filledQuantity;
+    const isMine = Boolean((order as any).isMine);
     const existing = byPrice.get(order.price);
     if (existing) {
-      existing.totalQty += order.remaining;
+      existing.totalQty += remaining;
       existing.orderIds.push(order.id);
-      if (order.isMine) existing.hasMine = true;
+      if (isMine) existing.hasMine = true;
     } else {
       byPrice.set(order.price, {
         price: order.price,
-        totalQty: order.remaining,
+        totalQty: remaining,
         orderIds: [order.id],
-        hasMine: Boolean(order.isMine),
+        hasMine: isMine,
       });
     }
   }
@@ -86,7 +88,7 @@ export default function OrderBookDisplay({ roomId }: OrderBookDisplayProps) {
 
   // Find own open orders for cancel buttons
   const myOpenOrders = useMemo(
-    () => orders.filter((o) => o.isMine && (o.status === 'open' || o.status === 'partial')),
+    () => orders.filter((o) => (o as any).isMine && (o.status === 'open' || o.status === 'partial')),
     [orders],
   );
 
@@ -244,7 +246,7 @@ export default function OrderBookDisplay({ roomId }: OrderBookDisplayProps) {
                   {order.side}
                 </span>
                 <span style={{ fontFamily: 'monospace' }}>
-                  {order.remaining}x @ {order.price.toFixed(1)}
+                  {order.quantity - order.filledQuantity}x @ {order.price.toFixed(1)}
                 </span>
                 <button
                   type="button"
