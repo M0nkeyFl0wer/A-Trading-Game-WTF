@@ -157,6 +157,22 @@ function createTables(db: Database.Database): void {
       timestamp INTEGER NOT NULL
     );
 
+    -- Compliance reports (written by Python sidecar) ---------------------
+
+    CREATE TABLE IF NOT EXISTS compliance_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      room_id TEXT NOT NULL,
+      round_number INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      betti_0 INTEGER,
+      betti_1 INTEGER,
+      zero_sum_valid INTEGER,
+      audit_chain_valid INTEGER,
+      info_flow_valid INTEGER,
+      details TEXT,
+      created_at INTEGER NOT NULL
+    );
+
     -- Indexes -----------------------------------------------------------
 
     CREATE INDEX IF NOT EXISTS idx_players_room ON players(room_id);
@@ -175,6 +191,7 @@ function createTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_audit_type ON audit_log(event_type);
     CREATE INDEX IF NOT EXISTS idx_ledger_room ON ledger(room_id);
     CREATE INDEX IF NOT EXISTS idx_ledger_player ON ledger(player_id);
+    CREATE INDEX IF NOT EXISTS idx_compliance_room ON compliance_reports(room_id);
   `);
 }
 

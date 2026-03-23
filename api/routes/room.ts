@@ -261,6 +261,48 @@ router.post('/:roomId/start', async (req: Request, res: Response) => {
   }
 });
 
+// Get compliance reports for a room (written by the Python sidecar)
+router.get('/:roomId/compliance', async (req: Request, res: Response) => {
+  const roomId = normalizeRoomId(req.params.roomId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+  try {
+    const { getDatabase } = require('../services/database');
+    const db = getDatabase();
+    const reports = db.prepare(
+      'SELECT * FROM compliance_reports WHERE room_id = ? ORDER BY round_number DESC'
+    ).all(roomId) as Array<{
+      round_number: number;
+      status: string;
+      betti_0: number | null;
+      betti_1: number | null;
+      zero_sum_valid: number | null;
+      audit_chain_valid: number | null;
+      info_flow_valid: number | null;
+      details: string | null;
+      created_at: number;
+    }>;
+
+    return res.status(200).json({
+      roomId,
+      reports: reports.map((r) => ({
+        roundNumber: r.round_number,
+        status: r.status,
+        betti0: r.betti_0,
+        betti1: r.betti_1,
+        zeroSumValid: Boolean(r.zero_sum_valid),
+        auditChainValid: Boolean(r.audit_chain_valid),
+        infoFlowValid: Boolean(r.info_flow_valid),
+        details: r.details ? JSON.parse(r.details) : null,
+        createdAt: r.created_at,
+      })),
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Compliance data unavailable' });
+  }
+});
+
 // Get room details — must be last to avoid capturing action segments as IDs.
 router.get('/:roomId', async (req: Request, res: Response) => {
   const roomId = normalizeRoomId(req.params.roomId);
