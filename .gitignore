@@ -54,3 +54,4 @@ api/data/server.key
 package-lock.json
 yarn.lock
 .claude/worktrees/
+deepaa_env/
