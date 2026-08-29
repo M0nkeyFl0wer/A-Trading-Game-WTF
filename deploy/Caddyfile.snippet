@@ -15,6 +15,9 @@
 # HTTPS server" (see skill homelab-hosting).
 # ---------------------------------------------------------------------------
 http://trading.elephantroom.ca:8018 {
+	# Loopback only: the tunnel is the sole client of this port. Without this
+	# Caddy binds 0.0.0.0 and the site is reachable from the LAN unauthenticated.
+	bind 127.0.0.1
 	encode zstd gzip
 
 	# Live API + websocket. Caddy v2 forwards the Upgrade handshake itself.
@@ -31,11 +34,15 @@ http://trading.elephantroom.ca:8018 {
 		file_server
 	}
 
-	# Optional gate for the friend test: uncomment and paste a bcrypt hash
-	# generated per the homelab-hosting recipe (never the plaintext).
-	# basicauth {
-	# 	friend $2b$14$...
-	# }
+	# Friend-test gate. The app itself has no real login in AUTH_DEV_BYPASS mode
+	# (anyone reaching the API can pick any dev identity), so this password is
+	# the only thing standing between the public hostname and the game.
+	# Plaintext lives in the keyring: `secret-tool lookup service trading-game type http_password`.
+	# The bcrypt hash below is not secret. Browsers reuse the cached credential
+	# for the same-origin /socket.io websocket handshake, so one prompt covers all.
+	basicauth {
+		friend $2b$12$TzMCwFL.kXnTnffpA76mTOBNA.pLf.d/wmjkB/fpkIiybkL09o1ZK
+	}
 
 	header {
 		X-Content-Type-Options "nosniff"
