@@ -120,7 +120,9 @@ const normaliseFromApi = (payload: any): LobbyTableSummary[] => {
     .map(normalizeRoom)
     .filter(Boolean) as LobbyTableSummary[];
 
-  return normalised.length ? normalised.slice(0, 12) : OFFLINE_TABLES;
+  // Empty is a real answer from the API; the preview list is only for when
+  // the API is unreachable (see useOffline), never for an empty lobby.
+  return normalised.slice(0, 12);
 };
 
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
