@@ -260,19 +260,48 @@ process.on('SIGINT', () => {
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 
-// Initialize SQLite database (creates tables if needed) BEFORE accepting traffic.
-// Fail fast: if the native better-sqlite3 binding is missing (e.g. pnpm skipped its
-// build script) or the data dir is unwritable, every later request would throw anyway.
-// Swallowing the error here used to leave a half-alive server that 500'd on everything.
-try {
-  getDatabase();
-} catch (err) {
-  logger.fatal({ err }, 'Failed to initialize SQLite database — refusing to start');
-  process.exit(1);
+/**
+ * Bind the HTTP server and initialise the SQLite database.
+ *
+ * Exported so callers (tests, scripts) can decide WHEN to listen instead of
+ * the module doing it as a side effect of being imported. Resolves once the
+ * server is accepting connections. PORT=0 asks the OS for any free port,
+ * which is what the test setup uses to avoid clashing with a dev server.
+ *
+ * The database is opened BEFORE we bind. Fail fast: if the native
+ * better-sqlite3 binding is missing (e.g. pnpm skipped its build script) or
+ * the data dir is unwritable, every later request would throw anyway.
+ * Swallowing the error here used to leave a half-alive server that 500'd on
+ * everything, which is far harder to diagnose than a crash at boot.
+ */
+export function start(port: number | string = PORT, host: string = HOST): Promise<typeof server> {
+  try {
+    getDatabase();
+  } catch (err) {
+    logger.fatal({ err }, 'Failed to initialize SQLite database — refusing to start');
+    return Promise.reject(err);
+  }
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    // Binding to `host` (default 0.0.0.0) is what lets HOST=127.0.0.1 keep the
+    // API loopback-only behind Caddy; the old code ignored HOST entirely.
+    server.listen(Number(port), host, () => {
+      server.off('error', reject);
+      logger.info({ host, port: (server.address() as any)?.port ?? port, environment: process.env.NODE_ENV || 'development' }, 'Server is running');
+      resolve(server);
+    });
+  });
 }
 
-server.listen(PORT, () => {
-  logger.info({ host: HOST, port: PORT, environment: process.env.NODE_ENV || 'development' }, 'Server is running');
-});
+// Normal runs (tsx / node) still start listening on import, exactly as
+// before. Under vitest (which sets VITEST=true) the module stays passive so
+// supertest can drive `app` in-process and nothing ever binds port 3001 or
+// touches the real database. See api/tests/setup.ts.
+if (!process.env.VITEST) {
+  start().catch((err) => {
+    logger.error({ err }, 'Failed to start server');
+    process.exit(1);
+  });
+}
 
 export { app, server, io };
