@@ -83,6 +83,39 @@ pnpm dev
 # Access at http://localhost:3000
 ```
 
+### Run the API for a friend test
+
+The game is two processes:
+
+| Process | Command | Port |
+|---------|---------|------|
+| API (Express + Socket.io + SQLite) | `cd api && npx tsx server.ts` | **3001** |
+| Web client (Vite) | `cd apps/web && pnpm dev` | **3000** |
+
+The API reads `api/.env` at startup (`api/lib/loadEnv.ts`, Node's built-in
+`process.loadEnvFile`, Node ≥ 20.12). Shell variables always win over the file.
+
+**Env contract** — nothing is required to boot; every variable has a default.
+Without real Firebase Admin credentials you must set `AUTH_DEV_BYPASS=true`, or
+every `/api/room` route returns `503 AuthUnavailable`. The bypass is refused
+when `NODE_ENV=production`. Full list with defaults: `api/.env.example`.
+
+```bash
+# 1. friend-test config (bypass on, no credentials needed)
+cp api/.env.test.example api/.env
+
+# 2. API in one terminal
+cd api && npx tsx server.ts        # -> http://localhost:3001
+curl http://localhost:3001/api/room   # {"rooms":[]}
+
+# 3. client in another
+cd apps/web && pnpm dev            # -> http://localhost:3000
+```
+
+Optional: `ELEVENLABS_API_KEY` turns on server-side voice (without it `/api/voice`
+returns 503 and the client falls back to Web Speech); `DB_PATH` moves the SQLite
+file (default `api/data/game.db`); `PORT`/`HOST`/`LOG_LEVEL` as usual.
+
 ## 🎨 Meet the Characters
 
 ### 🎰 **The Dealer**
