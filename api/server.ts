@@ -258,15 +258,42 @@ process.on('SIGINT', () => {
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 
-server.listen(PORT, () => {
-  // Initialize SQLite database (creates tables if needed)
-  try {
-    getDatabase();
-  } catch (err) {
-    logger.error({ err }, 'Failed to initialize SQLite database');
-  }
+/**
+ * Bind the HTTP server and initialise the SQLite database.
+ *
+ * Exported so callers (tests, scripts) can decide WHEN to listen instead of
+ * the module doing it as a side effect of being imported. Resolves once the
+ * server is accepting connections. PORT=0 asks the OS for any free port,
+ * which is what the test setup uses to avoid clashing with a dev server.
+ */
+export function start(port: number | string = PORT, host: string = HOST): Promise<typeof server> {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(Number(port), host, () => {
+      server.off('error', reject);
 
-  logger.info({ host: HOST, port: PORT, environment: process.env.NODE_ENV || 'development' }, 'Server is running');
-});
+      // Initialize SQLite database (creates tables if needed)
+      try {
+        getDatabase();
+      } catch (err) {
+        logger.error({ err }, 'Failed to initialize SQLite database');
+      }
+
+      logger.info({ host, port: (server.address() as any)?.port ?? port, environment: process.env.NODE_ENV || 'development' }, 'Server is running');
+      resolve(server);
+    });
+  });
+}
+
+// Normal runs (ts-node / node) still start listening on import, exactly as
+// before. Under vitest (which sets VITEST=true) the module stays passive so
+// supertest can drive `app` in-process and nothing ever binds port 3001 or
+// touches the real database. See api/tests/setup.ts.
+if (!process.env.VITEST) {
+  start().catch((err) => {
+    logger.error({ err }, 'Failed to start server');
+    process.exit(1);
+  });
+}
 
 export { app, server, io };

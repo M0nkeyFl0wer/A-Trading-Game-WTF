@@ -40,19 +40,37 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-  server?.close();
+  // Under vitest server.ts never calls listen() (see start() gate), so only
+  // close if something actually bound a port.
+  if (server?.listening) server.close();
 });
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
+describe("test isolation guard", () => {
+  // api/tests/setup.ts must have redirected the DB to a temp file BEFORE
+  // server.ts (and therefore services/database.ts) was imported. If this
+  // fails, the suite is writing into the real lobby database.
+  it("never points DB_PATH at the real api/data database", () => {
+    expect(process.env.DB_PATH).toBeDefined();
+    expect(process.env.DB_PATH).not.toContain("api/data");
+  });
+
+  it("does not bind a port under vitest", () => {
+    expect(server.listening).toBe(false);
+  });
+});
+
 describe("API smoke tests", () => {
-  it("returns health status with metrics", async () => {
+  it("returns a minimal health body", async () => {
     const response = await request(app).get("/api/health");
     expect(response.status).toBe(200);
     expect(response.body).toHaveProperty("status", "healthy");
-    expect(response.body).toHaveProperty("metrics");
+    // Deliberately minimal (red-team fix 7e43e32): metrics/uptime/memory
+    // leak server internals. Those now live on GET /api.
+    expect(Object.keys(response.body).sort()).toEqual(["status", "timestamp"]);
   });
 
   it("creates and lists rooms via API", async () => {

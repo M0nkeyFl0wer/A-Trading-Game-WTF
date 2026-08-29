@@ -11,5 +11,9 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    // Runs before every test file: redirects DB_PATH to a temp file and sets
+    // PORT=0 / HOST=127.0.0.1 so the suite can never touch api/data/game.db
+    // or clash with a running dev server (issue #8).
+    setupFiles: ['./tests/setup.ts'],
   },
 });
