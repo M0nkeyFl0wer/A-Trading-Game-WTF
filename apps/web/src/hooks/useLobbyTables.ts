@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onIdTokenChanged } from 'firebase/auth';
 import { sanitizeInput } from '../lib/security';
 import { auth, isDevAuth } from '../lib/firebase';
+import { getDevUserId, devIdToken } from '../lib/devIdentity';
 import { io, Socket } from 'socket.io-client';
 
 export type LobbyTablePhase = 'waiting' | 'playing' | 'finished';
@@ -136,9 +137,11 @@ export const useLobbyTables = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    // In dev auth mode, use a static token immediately.
+    // In dev auth mode there is no Firebase token to wait for: use the
+    // per-browser `dev:<uid>` token straight away. Same uid as AuthContext's
+    // dev user, so the lobby socket and the table socket are one identity.
     if (isDevAuth) {
-      setAuthToken('dev-token');
+      setAuthToken(devIdToken(getDevUserId()));
       return;
     }
 

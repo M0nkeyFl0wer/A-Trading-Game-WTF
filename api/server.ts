@@ -6,6 +6,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { applyRateLimiting } from './middleware/rateLimiting';
 import { applySecurityHeaders, handlePreflight, corsOptions, allowedOrigins } from './middleware/securityHeaders';
 import { authenticateRequest, attachOptionalUser } from './middleware/authenticate';
+import { devBypassEnabled, resolveDevUser } from './lib/devIdentity';
 import { getAuthInstance } from './lib/firebaseAdmin';
 import { roomEvents } from './lib/roomEvents';
 import { sanitizeRoomForPlayer } from './lib/sanitize';
@@ -15,6 +16,7 @@ import { getDatabase, closeDatabase, DB_PATH } from './services/database';
 import { DATA_DIR } from './lib/dataDir';
 import { KEY_DIR } from './lib/signing';
 import { botService } from './services/botService';
+import { roomService } from './services/roomService';
 import { commentatorService } from './services/commentatorService';
 import { auditService } from './services/auditService';
 import './services/kgOrderListener';  // auto-subscribes to game events for KG phase summaries
@@ -114,26 +116,32 @@ io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
     const auth = getAuthInstance();
 
+    // Dev bypass identity for sockets. Shares resolveDevUser() with the HTTP
+    // middleware so the id derived from the `dev:<id>` handshake token is the
+    // SAME id that created/joined the room over HTTP — previously sockets got
+    // `dev-<socket.id>`, which never matched, so `join-room` was rejected and
+    // the table froze after Start (issue #10). `auth.userId` / `auth.name`
+    // are the socket equivalents of the X-Dev-User-Id / X-Dev-User-Name
+    // headers; with neither, the shared AUTH_DEV_USER_ID fallback applies.
+    const attachDevSocketUser = () => {
+      socket.data.user = resolveDevUser({
+        token,
+        explicitId: socket.handshake.auth?.userId,
+        explicitName: socket.handshake.auth?.name,
+      });
+    };
+
     if (!auth) {
-      if (process.env.AUTH_DEV_BYPASS === 'true') {
-        // Use auth.userId from handshake if provided, otherwise socket-unique ID
-        const devId = typeof socket.handshake.auth?.userId === 'string'
-          && /^[a-zA-Z0-9_-]{1,64}$/.test(socket.handshake.auth.userId)
-          ? socket.handshake.auth.userId
-          : `dev-${socket.id}`;
-        socket.data.user = { id: devId, email: 'dev@example.com' };
+      if (devBypassEnabled) {
+        attachDevSocketUser();
         return next();
       }
       return next(new Error('Authentication unavailable'));
     }
 
     if (!token || typeof token !== 'string') {
-      if (process.env.AUTH_DEV_BYPASS === 'true') {
-        const devId = typeof socket.handshake.auth?.userId === 'string'
-          && /^[a-zA-Z0-9_-]{1,64}$/.test(socket.handshake.auth.userId)
-          ? socket.handshake.auth.userId
-          : `dev-${socket.id}`;
-        socket.data.user = { id: devId, email: 'dev@example.com' };
+      if (devBypassEnabled) {
+        attachDevSocketUser();
         return next();
       }
       return next(new Error('Authentication error: No token provided'));
@@ -155,9 +163,13 @@ io.on('connection', (socket) => {
   logger.info({ socketId: socket.id }, 'socket connected');
 
   socket.on('join-room', async (roomId: string) => {
-    // Only allow joining if the user is actually a player in this room
+    // Only allow joining if the user is actually a player in this room.
+    // roomService is imported at the top: the old lazy `require()` here is
+    // not defined under vitest's ESM transform, and the catch below turned
+    // that into a misleading "Room not found" (found while adding #10's
+    // socket test). botService already imports roomService, so there is no
+    // new import cycle.
     try {
-      const { roomService } = require('./services/roomService');
       const room = await roomService.getRoom(roomId);
       const isPlayer = room.players.some((p: any) => p.id === socket.data.user?.id);
       if (!isPlayer) {

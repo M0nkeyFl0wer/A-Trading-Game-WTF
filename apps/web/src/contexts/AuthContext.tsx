@@ -11,6 +11,7 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import { auth, isDevAuth } from '../lib/firebase';
+import { getDevUserId, devDisplayName, devIdToken } from '../lib/devIdentity';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -41,12 +42,20 @@ export function useAuth() {
  * Lightweight stand-in for Firebase User when running without credentials.
  * Only the properties the rest of the app actually touches are populated.
  * Cast to User so TypeScript is satisfied at the seams.
+ *
+ * Identity is per browser (issue #10): the uid is generated once into
+ * localStorage, the display name is derived from it, and getIdToken()
+ * returns `dev:<uid>` — the shape the API's dev bypass parses for BOTH
+ * HTTP requests and the socket handshake, so a friend's seat at the table
+ * and their live socket are the same player.
  */
 function createDevUser(): User {
+  const uid = getDevUserId();
+  const token = devIdToken(uid);
   const devUser = {
-    uid: 'dev-user',
+    uid,
     email: 'dev@example.com',
-    displayName: 'Dev Trader',
+    displayName: devDisplayName(uid),
     photoURL: null,
     emailVerified: true,
     isAnonymous: false,
@@ -58,10 +67,10 @@ function createDevUser(): User {
     phoneNumber: null,
 
     // The one method the app uses to attach auth headers to API calls.
-    getIdToken: async () => 'dev-token',
+    getIdToken: async () => token,
 
     getIdTokenResult: async () => ({
-      token: 'dev-token',
+      token,
       claims: {},
       authTime: new Date().toISOString(),
       issuedAtTime: new Date().toISOString(),
@@ -72,7 +81,7 @@ function createDevUser(): User {
 
     reload: async () => {},
     delete: async () => {},
-    toJSON: () => ({ uid: 'dev-user', email: 'dev@example.com' }),
+    toJSON: () => ({ uid, email: 'dev@example.com' }),
   };
 
   return devUser as unknown as User;
@@ -129,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isDevAuth) {
-      console.info('[Auth] Dev mode active — signed in as Dev Trader');
+      console.info(`[Auth] Dev mode active — signed in as ${currentUser?.displayName ?? 'Dev Trader'}`);
       return;
     }
 

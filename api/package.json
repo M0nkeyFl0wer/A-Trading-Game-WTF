@@ -33,6 +33,7 @@
     "@types/node": "^24.5.2",
     "@types/supertest": "^2.0.16",
     "pino-pretty": "^11.2.2",
+    "socket.io-client": "4.8.1",
     "supertest": "^7.1.1",
     "tsx": "^4.23.12",
     "typescript": "^5.9.2",
