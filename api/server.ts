@@ -4,14 +4,16 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { applyRateLimiting } from './middleware/rateLimiting';
-import { applySecurityHeaders, handlePreflight } from './middleware/securityHeaders';
+import { applySecurityHeaders, handlePreflight, corsOptions, allowedOrigins } from './middleware/securityHeaders';
 import { authenticateRequest, attachOptionalUser } from './middleware/authenticate';
 import { getAuthInstance } from './lib/firebaseAdmin';
 import { roomEvents } from './lib/roomEvents';
 import { sanitizeRoomForPlayer } from './lib/sanitize';
 import { logger } from './lib/logger';
 import { metrics } from './lib/metrics';
-import { getDatabase, closeDatabase } from './services/database';
+import { getDatabase, closeDatabase, DB_PATH } from './services/database';
+import { DATA_DIR } from './lib/dataDir';
+import { KEY_DIR } from './lib/signing';
 import { botService } from './services/botService';
 import { commentatorService } from './services/commentatorService';
 import { auditService } from './services/auditService';
@@ -49,13 +51,11 @@ if (process.env.NODE_ENV === 'production' && process.env.AUTH_DEV_BYPASS === 'tr
 const app: Express = express();
 const server = createServer(app);
 
+// Socket.IO reuses the exact CORS options Express uses, so the allowlist lives
+// in ONE place (middleware/securityHeaders.ts, fed by ALLOWED_ORIGINS). The old
+// second hard-coded list here had already drifted from the HTTP one (issue #9).
 const io = new SocketIOServer(server, {
-  cors: {
-    origin: process.env.NODE_ENV === 'production'
-      ? ['https://trading-game.vercel.app', 'https://a-trading-game-wtf.vercel.app']
-      : ['http://localhost:3000', 'http://localhost:3001'],
-    credentials: true
-  },
+  cors: corsOptions,
   transports: ['websocket', 'polling']
 });
 
@@ -231,7 +231,23 @@ app.use((req: Request, res: Response) => {
   });
 });
 
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+app.use((err: Error & { status?: number; statusCode?: number }, req: Request, res: Response, next: NextFunction) => {
+  // Honour an explicit HTTP status on the error (CorsOriginError sets 403,
+  // body-parser sets 400/413, ...). Those are CLIENT errors: log at warn
+  // without a stack trace, and answer with the real status instead of 500.
+  // Anything without a status is a genuine bug -> 500 + full error log.
+  const status = err.status ?? err.statusCode;
+  if (typeof status === 'number' && status >= 400 && status < 500) {
+    logger.warn({ status, path: req.path, message: err.message }, 'request rejected');
+    res.status(status).json({
+      error: status === 403 ? 'Forbidden' : 'Bad Request',
+      message: err.message,
+      timestamp: new Date().toISOString(),
+      requestId: res.getHeader('X-Request-ID')
+    });
+    return;
+  }
+
   logger.error({ err, path: req.path }, 'Unhandled error');
   const message = process.env.NODE_ENV === 'production'
     ? 'Internal Server Error'
@@ -298,6 +314,10 @@ export function start(port: number | string = PORT, host: string = HOST): Promis
     server.listen(Number(port), host, () => {
       server.off('error', reject);
       logger.info({ host, port: (server.address() as any)?.port ?? port, environment: process.env.NODE_ENV || 'development' }, 'Server is running');
+      // Log where on-disk state actually lives (issue #15): under tsx this is
+      // api/data, under a compiled dist it would be api/dist/data -- which is
+      // how a keypair silently rotated between the two. DATA_DIR pins it.
+      logger.info({ dataDir: DATA_DIR, dbPath: DB_PATH, keyDir: KEY_DIR, allowedOrigins }, 'Resolved paths and CORS allowlist');
       resolve(server);
     });
   });
