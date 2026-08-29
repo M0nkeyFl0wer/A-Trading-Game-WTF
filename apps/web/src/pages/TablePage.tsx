@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { computeEV } from '@trading-game/shared';
 import OrderForm from '../ui/OrderForm';
@@ -35,6 +35,7 @@ export default function TablePage() {
   const [startingRound, setStartingRound] = useState(false);
   const [addingBot, setAddingBot] = useState(false);
   const { currentUser } = useAuth();
+  const navigate = useNavigate();
   const isHost = Boolean(currentUser && room?.hostId && currentUser.uid === room.hostId);
 
   const { queueVoice, announceEvent, playCharacterReaction } = useGameVoice({
@@ -108,6 +109,25 @@ export default function TablePage() {
   const noticeMessage = roomError || (roomStatus === 'loading' && !room ? 'Connecting to table...' : null);
   const isLoadingRoom = roomStatus === 'loading' && !room;
 
+  /**
+   * Leave the table properly. The old "← Back" was a plain <Link>: it only
+   * dropped the socket, so the seat stayed occupied and the room kept dealing
+   * rounds to nobody (found by the two-browser test, 2026-08-29). Tell the API
+   * first; if that fails we still navigate — a stuck seat is the server's
+   * problem to time out, not a reason to trap the player on the page.
+   */
+  const handleLeaveTable = async () => {
+    if (id && currentUser) {
+      try {
+        const token = await currentUser.getIdToken();
+        await fetch(`${API_BASE}/api/room/leave/${id}`, { method: 'POST', headers: authHeaders(token) });
+      } catch (err) {
+        console.warn('Leave request failed; navigating anyway', err);
+      }
+    }
+    navigate('/');
+  };
+
   const handleStartRound = async () => {
     if (!id || !currentUser) return;
     setStartingRound(true);
@@ -175,9 +195,9 @@ export default function TablePage() {
           <p className="page__subtitle">Round {roundNumber || 1} &middot; {roundPhaseLabel}</p>
         </div>
         <div className="page__actions">
-          <Link to="/" className="button button--ghost">
-            &larr; Back
-          </Link>
+          <button type="button" className="button button--ghost" onClick={handleLeaveTable}>
+            &larr; Leave table
+          </button>
           <ConnectWalletButton />
         </div>
       </header>

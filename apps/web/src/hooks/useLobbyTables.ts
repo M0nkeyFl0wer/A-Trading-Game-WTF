@@ -261,6 +261,12 @@ export const useLobbyTables = () => {
 
     return () => {
       controller.abort();
+      // The abort rejection (and loadTables' `finally`) settles on a later
+      // microtask, but React re-runs this effect synchronously when the
+      // callback identity changes (e.g. authToken arriving right after mount).
+      // Clear the guard here so that immediate re-run is allowed to fetch,
+      // otherwise the lobby sits on its skeleton until someone hits Refresh.
+      inFlight.current = false;
       if (refreshInterval) {
         clearInterval(refreshInterval);
       }
