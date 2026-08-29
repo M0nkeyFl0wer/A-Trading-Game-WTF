@@ -11,6 +11,16 @@ This is a voice-enabled, character-driven trading game with real-time multiplaye
 ## 🚀 Quick Commands
 
 ```bash
+# Toolchain: Node 22 (see .nvmrc) + the pnpm pinned in package.json "packageManager"
+nvm use && corepack pnpm install --frozen-lockfile
+
+# Start the API server (tsx, no build step needed) — http://localhost:3001
+AUTH_DEV_BYPASS=true corepack pnpm --filter api start   # or: pnpm dev:api (watch mode)
+curl http://localhost:3001/api/health
+
+# Compile the API to plain JS and run it with Node (production style)
+corepack pnpm -r build && node api/dist/server.js
+
 # Start development
 cd apps/web && pnpm dev
 

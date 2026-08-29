@@ -107,7 +107,8 @@ router.get('/stats/:botId', async (req: Request, res: Response) => {
     });
   }
 
-  const { botId } = req.params;
+  // Express 5 types route params as string | string[]; coerce to the string we expect.
+  const botId = String(req.params.botId);
   const stats = botSandbox.getStats(botId);
 
   if (!stats) {
@@ -128,7 +129,7 @@ router.delete('/kill/:botId', async (req: Request, res: Response) => {
     });
   }
 
-  const { botId } = req.params;
+  const botId = String(req.params.botId);
   const killed = botSandbox.killWorker(botId);
 
   if (!killed) {

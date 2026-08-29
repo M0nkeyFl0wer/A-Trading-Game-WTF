@@ -5,7 +5,11 @@
     "outDir": "dist",
     "rootDir": "src",
     "declaration": true,
-    "declarationMap": true
+    "declarationMap": true,
+    // CommonJS emit so plain Node can require() this package (see packages/shared/tsconfig.json).
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "verbatimModuleSyntax": false
   },
   "include": ["src"],
   "references": [

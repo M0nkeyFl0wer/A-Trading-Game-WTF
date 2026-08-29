@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { validateInput, validationSchemas } from '@trading-game/shared';
 
-const router = Router();
+// Explicit `Router` annotation: without it `tsc -b` with declaration emit fails with
+// TS2742 ("inferred type cannot be named without a reference to express-serve-static-core").
+const router: Router = Router();
 
 /**
  * User profile routes
@@ -19,7 +21,7 @@ router.get('/profile', async (req: Request, res: Response) => {
   // TODO: Get actual user profile from database
   return res.status(200).json({
     id: req.user.id,
-    username: req.user.username || 'testuser',
+    username: req.user.name || 'testuser',
     email: req.user.email || 'test@example.com',
     stats: {
       gamesPlayed: 0,

@@ -5,7 +5,15 @@
     "outDir": "dist",
     "rootDir": "src",
     "declaration": true,
-    "declarationMap": true
+    "declarationMap": true,
+    // Emit CommonJS so plain Node (the api server, `node dist/server.js`) can
+    // `require()` this package. The base config's ESNext emit produced
+    // extensionless ESM imports that Node refuses to load without "type":"module".
+    // Vite/vitest in apps/web consume CJS fine via esModuleInterop.
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    // verbatimModuleSyntax forbids CommonJS emit (TS1295), so switch it off here.
+    "verbatimModuleSyntax": false
   },
   "include": ["src"]
 }

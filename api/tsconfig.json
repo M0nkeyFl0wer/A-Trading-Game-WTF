@@ -3,6 +3,9 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "commonjs",
+    // The base config enables verbatimModuleSyntax, which is incompatible with CommonJS
+    // emit (TS1295/TS1287). The api is a plain-Node CJS program, so turn it off here.
+    "verbatimModuleSyntax": false,
     "lib": ["ES2020"],
     "outDir": "./dist",
     "rootDir": "./",
@@ -20,7 +23,11 @@
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "tests",
+    "**/*.test.ts",
+    "vitest.config.ts",
+    "game.ts"
   ],
   "references": [
     { "path": "../packages/shared" },

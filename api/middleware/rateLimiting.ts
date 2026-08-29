@@ -14,7 +14,7 @@ const keyGenerator = (req: Request): string => {
   if (req.user && req.user.id) {
     return `user:${req.user.id}`;
   }
-  return `ip:${ipKeyGenerator(req.ip)}`;
+  return `ip:${ipKeyGenerator(req.ip ?? '')}`;
 };
 
 // Skip successful requests for certain endpoints
@@ -59,7 +59,7 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req: Request): string => {
     // Always use IP for auth endpoints
-    return `auth:${ipKeyGenerator(req.ip)}`;
+    return `auth:${ipKeyGenerator(req.ip ?? '')}`;
   }
 });
 
@@ -78,7 +78,7 @@ export const tradingLimiter = rateLimit({
     if (req.user && req.user.id) {
       return `trade:${req.user.id}`;
     }
-    return `trade:${ipKeyGenerator(req.ip)}`;
+    return `trade:${ipKeyGenerator(req.ip ?? '')}`;
   }
 });
 
@@ -96,7 +96,7 @@ export const botLimiter = rateLimit({
     if (req.user && req.user.id) {
       return `bot:${req.user.id}`;
     }
-    return `bot:${ipKeyGenerator(req.ip)}`;
+    return `bot:${ipKeyGenerator(req.ip ?? '')}`;
   }
 });
 
@@ -114,7 +114,7 @@ export const voiceLimiter = rateLimit({
     if (req.user && req.user.id) {
       return `voice:${req.user.id}`;
     }
-    return `voice:${ipKeyGenerator(req.ip)}`;
+    return `voice:${ipKeyGenerator(req.ip ?? '')}`;
   }
 });
 
@@ -129,7 +129,7 @@ export const wsLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: Request): string => {
-    return `ws:${ipKeyGenerator(req.ip)}`;
+    return `ws:${ipKeyGenerator(req.ip ?? '')}`;
   }
 });
 
@@ -145,7 +145,7 @@ export const accountCreationLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: Request): string => {
-    return `signup:${ipKeyGenerator(req.ip)}`;
+    return `signup:${ipKeyGenerator(req.ip ?? '')}`;
   }
 });
 
@@ -162,7 +162,7 @@ export const passwordResetLimiter = rateLimit({
   keyGenerator: (req: Request): string => {
     // Use both IP and email if available
     const email = req.body?.email || '';
-    return `reset:${ipKeyGenerator(req.ip)}:${email}`;
+    return `reset:${ipKeyGenerator(req.ip ?? '')}:${email}`;
   }
 });
 
@@ -242,7 +242,7 @@ export class IPBlocker {
 
   middleware() {
     return (req: Request, res: Response, next: Function) => {
-      if (this.isBlocked(ipKeyGenerator(req.ip))) {
+      if (this.isBlocked(ipKeyGenerator(req.ip ?? ''))) {
         return res.status(403).json({
           error: 'Forbidden',
           message: 'Your IP has been temporarily blocked due to suspicious activity.'

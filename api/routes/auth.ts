@@ -2,7 +2,9 @@ import { Router, Request, Response } from 'express';
 import { validateInput, validationSchemas, sanitizeInput } from '@trading-game/shared';
 import { authLimiter, passwordResetLimiter } from '../middleware/rateLimiting';
 
-const router = Router();
+// Explicit `Router` annotation: without it `tsc -b` with declaration emit fails with
+// TS2742 ("inferred type cannot be named without a reference to express-serve-static-core").
+const router: Router = Router();
 
 /**
  * Authentication routes with security

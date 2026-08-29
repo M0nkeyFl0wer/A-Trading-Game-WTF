@@ -23,7 +23,9 @@ class GameEventBus extends EventEmitter {
   }
 
   override on(event: 'game_event', listener: (data: GameEvent) => void): this;
-  override on(event: string, listener: (...args: unknown[]) => void): this {
+  // Implementation signature uses `any[]` so the typed overload above is assignable to it
+  // (with `unknown[]` tsc rejects the overload under strictFunctionTypes: TS2394).
+  override on(event: string, listener: (...args: any[]) => void): this {
     return super.on(event, listener);
   }
 }
