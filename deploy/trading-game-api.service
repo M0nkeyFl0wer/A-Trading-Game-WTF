@@ -6,9 +6,8 @@
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now trading-game-api.service     # enable, not just start
 #
-# Runs via tsx (issue: "API has no launch script") because ts-node cannot load
-# the workspace packages; ExecStart uses the nvm Node 22 binary explicitly since
-# /usr/bin/node is 18 and the native better-sqlite3 binding is built for 22.
+# Runs via tsx (issue #5). PATH puts the nvm Node 22 first because /usr/bin/node
+# is 18 and the native better-sqlite3 binding is built for 22.
 
 [Unit]
 Description=A-Trading-Game API (express + socket.io) on 127.0.0.1:8019
@@ -21,7 +20,10 @@ WorkingDirectory=%h/Projects/A-Trading-Game-WTF/api
 EnvironmentFile=%h/.config/trading-game/api.env
 # NODE_ENV deliberately unset: production mode currently crashes on the helmet
 # CSP bug and refuses AUTH_DEV_BYPASS (issues M3). Revisit after those land.
-ExecStart=%h/.nvm/versions/node/v22.22.2/bin/node %h/Projects/A-Trading-Game-WTF/api/node_modules/.bin/tsx server.ts
+# node_modules/.bin/tsx is a pnpm SHELL shim, not JavaScript, so it must be
+# executed directly with Node 22 first on PATH (never `node .bin/tsx`).
+Environment=PATH=%h/.nvm/versions/node/v22.22.2/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/Projects/A-Trading-Game-WTF/api/node_modules/.bin/tsx server.ts
 Restart=on-failure
 RestartSec=3
 # SIGTERM triggers the server's graceful shutdown (closes SQLite, HTTP).
