@@ -188,8 +188,18 @@ export const useLobbyTables = () => {
     setTables((prev) => prev.filter((table) => table.id !== roomId));
   }, []);
 
+  // In-flight guard. This used to be `if (status === 'loading') return;` with
+  // `status` in the deps below — which meant every fetch changed `loadTables`'s
+  // identity, the effect re-ran, its cleanup ABORTED the fetch it had just
+  // started, and the re-run hit the guard and returned. `status` stayed
+  // 'loading' forever and the lobby never left its skeleton (found by the
+  // two-browser test, 2026-08-29). A ref does not re-render, so the callback
+  // is stable and the request is allowed to finish.
+  const inFlight = useRef(false);
+
   const loadTables = useCallback(async (signal?: AbortSignal) => {
-    if (status === 'loading') return;
+    if (inFlight.current) return;
+    inFlight.current = true;
 
     setStatus('loading');
     setError(null);
@@ -225,16 +235,21 @@ export const useLobbyTables = () => {
       const payload = await response.json();
       const normalised = normaliseFromApi(payload);
 
-      setTables(normalised.length ? normalised : OFFLINE_TABLES);
+      // An empty lobby is a real, valid state — never dress it up with the
+      // OFFLINE_TABLES preview, or friends see phantom tables they cannot join.
+      setTables(normalised);
       setStatus('ready');
     } catch (err) {
       if ((err as DOMException)?.name === 'AbortError') {
+        // Unmount / re-run cancelled us; leave status alone for the next call.
         return;
       }
       console.warn('Lobby tables request fell back to offline cache', err);
       useOffline('Unable to connect to the lobby service. Showing preview tables.');
+    } finally {
+      inFlight.current = false;
     }
-  }, [status, authToken]);
+  }, [authToken]);
 
   useEffect(() => {
     const controller = new AbortController();
