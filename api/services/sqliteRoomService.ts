@@ -2,7 +2,7 @@ import { randomInt, randomUUID } from 'crypto';
 import type Database from 'better-sqlite3';
 import { getDatabase } from './database';
 import { emitRoomUpdated, emitRoomRemoved } from '../lib/roomEvents';
-import { PHASE_SEQUENCE } from '@trading-game/shared';
+import { PHASE_SEQUENCE, NEXT_ROUND_DELAY_MS } from '@trading-game/shared';
 import { gameEngine, type RoomGameState } from './gameEngine';
 import type { RoomRecord, RoomPlayer, RoomStatus } from './roomService';
 import { RoomServiceError } from './roomService';
@@ -22,7 +22,8 @@ const BOT_NAMES: Record<string, string> = {
   WHALE: 'The Whale',
   ROOKIE: 'Fresh Trader',
 };
-const NEXT_ROUND_DELAY_MS = 5_000;
+// NEXT_ROUND_DELAY_MS now lives in @trading-game/shared so the client countdown
+// and this server timer cannot drift apart again (#14).
 
 type RoomTimers = {
   phaseTransition?: NodeJS.Timeout;
@@ -36,6 +37,12 @@ const createPlayer = (id: string, name: string, index: number): RoomPlayer => ({
   balance: DEFAULT_BALANCE,
   character: CHARACTER_SEQUENCE[index % CHARACTER_SEQUENCE.length],
 });
+
+// A room only keeps playing while a real person is seated. Bots inherit host
+// when humans leave, so a bare `players.length >= 2` check would let a bot-only
+// table deal rounds (and write ledger/audit/KG rows) forever (#14).
+const hasHumanPlayer = (players: Array<{ isBot?: boolean }>): boolean =>
+  players.some((p) => !p.isBot);
 
 // ---------------------------------------------------------------------------
 // Row types matching SQLite schema
@@ -358,7 +365,9 @@ export class SqliteRoomService {
         throw new RoomServiceError(400, 'Player not found in room');
       }
 
-      if (remainingPlayers.length === 0) {
+      // Last human out: remove any remaining bots and delete the room outright.
+      // (An empty room is just the degenerate case of "no humans left".) (#14)
+      if (!hasHumanPlayer(remainingPlayers)) {
         this.stmts.deleteRoomPlayers.run(roomId);
         this.stmts.deleteRoom.run(roomId);
         return { ...room, players: [], status: 'waiting' as RoomStatus, updatedAt: Date.now() };
@@ -724,6 +733,11 @@ export class SqliteRoomService {
   // ---------------------------------------------------------------------------
 
   private scheduleNextRound(roomId: string, room: RoomRecord): void {
+    // Nobody human is watching: stop here and tear the room down (#14).
+    if (!hasHumanPlayer(room.players)) {
+      this.retireBotOnlyRoom(roomId, 'no human players at settlement');
+      return;
+    }
     if (room.players.length < 2) return;
 
     const timers = this.getTimers(roomId);
@@ -741,6 +755,13 @@ export class SqliteRoomService {
     if (timers.nextRound) {
       clearTimeout(timers.nextRound);
       timers.nextRound = undefined;
+    }
+
+    // Humans may have left during the settlement pause -- never deal to an
+    // audience of bots (#14).
+    if (!this.roomHasHuman(roomId)) {
+      this.retireBotOnlyRoom(roomId, 'no human players before next round');
+      return null;
     }
 
     const prepared = this.db.transaction(() => {
@@ -783,6 +804,28 @@ export class SqliteRoomService {
     this.timers.delete(roomId);
   }
 
+  /** True when at least one non-bot player is seated (reads the DB, not a cached record). */
+  private roomHasHuman(roomId: string): boolean {
+    const rows = this.stmts.getPlayers.all(roomId) as PlayerRow[];
+    return rows.some((p) => p.is_bot !== 1);
+  }
+
+  /**
+   * Stop every timer for a room with no human player left and delete it, bots
+   * included. Called from the automation paths that would otherwise keep a
+   * bot-only table dealing forever (#14). Deleting a room that is already
+   * gone is a harmless no-op.
+   */
+  private retireBotOnlyRoom(roomId: string, reason: string): void {
+    this.clearTimers(roomId);
+    this.db.transaction(() => {
+      this.stmts.deleteRoomPlayers.run(roomId);
+      this.stmts.deleteRoom.run(roomId);
+    })();
+    logger.info({ roomId, reason }, 'retired bot-only room');
+    emitRoomRemoved({ id: roomId });
+  }
+
   /**
    * On startup, restore timers for rooms in active trading phases.
    * Cascades through multiple missed phases if the server was down long enough,
@@ -799,6 +842,7 @@ export class SqliteRoomService {
     let advanced = 0;
     let resumed = 0;
     let autoStarted = 0;
+    let retired = 0;
 
     // -----------------------------------------------------------------------
     // 1. Recover rooms in active trading phases (blind, flop, turn)
@@ -806,6 +850,14 @@ export class SqliteRoomService {
     const activeRows = this.stmts.getActivePhaseRooms.all() as RoomRow[];
 
     for (const row of activeRows) {
+      // A bot-only room must not be re-armed on restart -- that is how they
+      // used to survive forever (#14).
+      if (!this.roomHasHuman(row.id)) {
+        this.retireBotOnlyRoom(row.id, 'server restart, no human players');
+        retired++;
+        continue;
+      }
+
       const gs: RoomGameState | null = row.game_state ? JSON.parse(row.game_state) : null;
       if (!gs?.phaseEndsAt) continue;
 
@@ -867,6 +919,14 @@ export class SqliteRoomService {
       const finishedAt = gs.updatedAt ?? row.updated_at;
       const timeSinceFinish = now - finishedAt;
 
+      // Bot-only rooms are torn down rather than auto-started, regardless of
+      // how recently they finished -- nothing else would ever clean them up (#14).
+      if (!this.roomHasHuman(row.id)) {
+        this.retireBotOnlyRoom(row.id, 'server restart, no human players');
+        retired++;
+        continue;
+      }
+
       if (timeSinceFinish > NEXT_ROUND_DELAY_MS) {
         // Check if room has enough players
         const players = this.stmts.getPlayers.all(row.id) as PlayerRow[];
@@ -891,6 +951,7 @@ export class SqliteRoomService {
         advanced,
         resumed,
         autoStarted,
+        retired,
       },
       'room recovery complete',
     );
