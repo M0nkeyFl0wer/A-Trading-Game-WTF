@@ -154,6 +154,12 @@ export const PHASE_SEQUENCE: PhaseConfig[] = [
 // Total phase duration for the full round
 export const TOTAL_ROUND_MS = PHASE_SEQUENCE.reduce((sum, p) => sum + p.durationMs, 0);
 
+// Pause between a round settling and the next one being dealt. The server's
+// scheduleNextRound timer and the client's SettlementScreen countdown both
+// read this one value so the P&L overlay is on screen exactly as long as the
+// server waits (#14). Rooms without a human player never auto-continue at all.
+export const NEXT_ROUND_DELAY_MS = 15_000;
+
 // ============================================================================
 // Commit-Reveal Card Verification
 // ============================================================================

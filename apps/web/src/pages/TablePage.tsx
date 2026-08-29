@@ -140,7 +140,7 @@ export default function TablePage() {
     setActionError(null);
     try {
       const token = await currentUser.getIdToken();
-      const response = await fetch(`${API_BASE}/api/room/${id}/bot`, {
+      const response = await fetch(`${API_BASE}/api/room/${id}/add-bot`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

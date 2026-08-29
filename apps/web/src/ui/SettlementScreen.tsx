@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '../store';
+import { NEXT_ROUND_DELAY_MS } from '@trading-game/shared';
+
+// The countdown mirrors the server's next-round timer exactly. It used to be a
+// hard-coded 10 while the server waited 5 s, so the overlay vanished mid-count (#14).
+const COUNTDOWN_SECONDS = Math.round(NEXT_ROUND_DELAY_MS / 1000);
 
 const balanceFmt = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -25,14 +30,14 @@ export default function SettlementScreen() {
   const revealedCards = useGameStore((state) => state.revealedCommunityCards);
   const pnl = useGameStore((state) => state.pnl);
   const players = useGameStore((state) => state.players);
-  const [countdown, setCountdown] = useState(10);
+  const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
   const [showTotal, setShowTotal] = useState(false);
 
   const isVisible = tradingPhase === 'finished';
 
   useEffect(() => {
     if (!isVisible) {
-      setCountdown(10);
+      setCountdown(COUNTDOWN_SECONDS);
       setShowTotal(false);
       return;
     }

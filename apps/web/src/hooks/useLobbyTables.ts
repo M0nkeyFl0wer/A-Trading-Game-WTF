@@ -170,8 +170,13 @@ export const useLobbyTables = () => {
 
     setTables((prev) => {
       const existingIdx = prev.findIndex((table) => table.id === normalized.id);
-      const next = existingIdx >= 0 ? [...prev] : [...prev, normalized];
-      next[existingIdx >= 0 ? existingIdx : next.length - 1] = normalized;
+      // If a socket payload omits createdAt, normalizeRoom stamps Date.now(), which
+      // would shuffle the list on every event. Keep the createdAt we already know.
+      const merged = existingIdx >= 0 && !room?.createdAt
+        ? { ...normalized, createdAt: prev[existingIdx].createdAt }
+        : normalized;
+      const next = existingIdx >= 0 ? [...prev] : [...prev, merged];
+      next[existingIdx >= 0 ? existingIdx : next.length - 1] = merged;
       return next.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     });
   }, []);
@@ -261,7 +266,11 @@ export const useLobbyTables = () => {
       auth: { token: authToken },
     });
 
+    // 'rooms:update' is only delivered to sockets that joined a room, so for the
+    // lobby it is effectively dead. The server broadcasts 'rooms:lobby-update'
+    // to every socket on any room change -- that is what keeps the lobby live (#12).
     socket.on('rooms:update', updateFromRoom);
+    socket.on('rooms:lobby-update', updateFromRoom);
     socket.on('rooms:removed', (payload: { id: string }) => {
       if (payload?.id) {
         removeRoomById(payload.id);
@@ -275,6 +284,7 @@ export const useLobbyTables = () => {
 
     return () => {
       socket.off('rooms:update', updateFromRoom);
+      socket.off('rooms:lobby-update', updateFromRoom);
       socket.disconnect();
       socketRef.current = null;
     };
