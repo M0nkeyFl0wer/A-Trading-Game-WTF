@@ -55,3 +55,13 @@ package-lock.json
 yarn.lock
 .claude/worktrees/
 deepaa_env/
+
+# TypeScript incremental build state — machine-local, never commit
+# (tracked copies made `tsc -b` think stale outputs were current)
+*.tsbuildinfo
+# Compiled output that leaked into packages/shared/src (build output belongs in dist/)
+packages/shared/src/*.js
+packages/shared/src/*.d.ts
+packages/shared/src/*.d.ts.map
+# ...but the bot sandbox worker is hand-written JS and must stay tracked
+!packages/bot/src/sandbox/bot-worker.js

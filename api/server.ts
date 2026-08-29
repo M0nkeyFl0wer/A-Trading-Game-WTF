@@ -258,14 +258,18 @@ process.on('SIGINT', () => {
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 
-server.listen(PORT, () => {
-  // Initialize SQLite database (creates tables if needed)
-  try {
-    getDatabase();
-  } catch (err) {
-    logger.error({ err }, 'Failed to initialize SQLite database');
-  }
+// Initialize SQLite database (creates tables if needed) BEFORE accepting traffic.
+// Fail fast: if the native better-sqlite3 binding is missing (e.g. pnpm skipped its
+// build script) or the data dir is unwritable, every later request would throw anyway.
+// Swallowing the error here used to leave a half-alive server that 500'd on everything.
+try {
+  getDatabase();
+} catch (err) {
+  logger.fatal({ err }, 'Failed to initialize SQLite database — refusing to start');
+  process.exit(1);
+}
 
+server.listen(PORT, () => {
   logger.info({ host: HOST, port: PORT, environment: process.env.NODE_ENV || 'development' }, 'Server is running');
 });
 

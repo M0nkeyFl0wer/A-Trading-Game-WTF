@@ -2,8 +2,13 @@
   "name": "trading-game-monorepo",
   "private": true,
   "version": "0.0.0",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "dev:api": "pnpm --filter api dev"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.1",
@@ -12,18 +17,9 @@
     "typescript": "^5.4.0",
     "vitest": "^1.5.0"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "esbuild"
-    ]
-  },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "chrome-remote-interface": "^0.33.3",
     "jsdom": "^27.0.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
   }
 }
