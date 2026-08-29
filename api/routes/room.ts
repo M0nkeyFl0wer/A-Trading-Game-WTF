@@ -52,10 +52,25 @@ const normalizeRoomId = (value: string | string[] | undefined): string => {
   return sanitizeInput(id ?? '').trim();
 };
 
+/**
+ * Name to seat the caller under.
+ *
+ * Precedence: an explicit `displayName` in the body, then the name the auth
+ * layer resolved (`req.user.name` — `Dev Trader <first4>` or X-Dev-User-Name
+ * under dev bypass, the Firebase profile name otherwise), then the email
+ * local-part. Before issue #10 the email fallback ran for every dev caller,
+ * so every friend at the table was called "dev".
+ *
+ * Deliberately NOT read from `body.name`: on POST /create that field is the
+ * ROOM name, so honouring it here would label the host with the table name.
+ */
 const getDisplayName = (req: Request): string => {
   const provided = typeof req.body?.displayName === 'string' ? req.body.displayName : undefined;
   if (provided) {
     return sanitizeInput(provided).slice(0, 32) || 'Trader';
+  }
+  if (req.user?.name) {
+    return sanitizeInput(req.user.name).slice(0, 32) || 'Trader';
   }
   return req.user?.email?.split('@')[0] || 'Trader';
 };

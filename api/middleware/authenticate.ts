@@ -1,13 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { DecodedIdToken } from 'firebase-admin/auth';
 import { getAuthInstance, isFirebaseConfigured } from '../lib/firebaseAdmin';
-
-const devBypassEnabled = process.env.AUTH_DEV_BYPASS === 'true';
-const devBypassUserId = process.env.AUTH_DEV_USER_ID || 'dev-user';
-const devBypassUserEmail = process.env.AUTH_DEV_USER_EMAIL || 'dev@example.com';
-
-// Validate dev user ID to prevent injection via header
-const SAFE_DEV_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+import { devBypassEnabled, resolveDevUser } from '../lib/devIdentity';
 
 const extractBearerToken = (req: Request): string | null => {
   const header = req.headers.authorization;
@@ -26,22 +20,26 @@ const attachUserToRequest = (req: Request, decoded: DecodedIdToken | null) => {
       id: decoded.uid,
       email: decoded.email || 'unknown@trading.game',
       role: (decoded.role as string) || (decoded.claims?.role as string) || 'player',
+      // Firebase profile name, when the token carries one, so the lobby can
+      // seat real users under their chosen label too.
+      name: typeof decoded.name === 'string' ? decoded.name : undefined,
     };
     return;
   }
 
-  // In dev bypass mode, allow X-Dev-User-Id header to set distinct identities.
-  // This enables multiplayer testing without Firebase. Validate strictly.
-  const headerUserId = req.headers['x-dev-user-id'];
-  const customId = typeof headerUserId === 'string' && SAFE_DEV_ID_RE.test(headerUserId)
-    ? headerUserId
-    : devBypassUserId;
-
-  req.user = {
-    id: customId,
-    email: devBypassUserEmail,
-    role: 'developer',
-  };
+  // Dev bypass: identity comes from the `dev:<id>` bearer token the web
+  // client sends, or from X-Dev-User-Id for curl. The same helper resolves
+  // socket identities in server.ts, so HTTP and socket ids always agree
+  // (issue #10). resolveDevUser only returns null when bypass is off, and
+  // every caller below already checked devBypassEnabled first.
+  const devUser = resolveDevUser({
+    token: extractBearerToken(req),
+    explicitId: req.headers['x-dev-user-id'],
+    explicitName: req.headers['x-dev-user-name'],
+  });
+  if (devUser) {
+    req.user = devUser;
+  }
 };
 
 const handleAuthUnavailable = (res: Response) =>

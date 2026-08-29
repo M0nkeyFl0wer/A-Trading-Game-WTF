@@ -91,6 +91,9 @@ importers:
       pino-pretty:
         specifier: ^11.2.2
         version: 11.3.0
+      socket.io-client:
+        specifier: 4.8.1
+        version: 4.8.1(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       supertest:
         specifier: ^7.1.1
         version: 7.2.2
