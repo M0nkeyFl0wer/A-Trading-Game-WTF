@@ -1,3 +1,5 @@
+import './lib/loadEnv';  // MUST stay first: fills process.env from api/.env before other modules read it
+
 import express, { Express, Request, Response, NextFunction } from 'express';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
