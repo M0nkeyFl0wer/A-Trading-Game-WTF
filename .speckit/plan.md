@@ -23,7 +23,7 @@ The game has correct Liar's Poker mechanics in `packages/core/` (3-phase Round +
 | T-006 | **Remove dangerous WS handlers** — Delete raw `socket.on('trade')` and `socket.on('message')` relays. Add room membership check on `join-room` | — | S | Yes |
 | T-007 | **Price/quantity bounds** — Max price 200, min -50, max qty 10. Server-side validation in gameEngine as second line | — | S | Yes |
 | T-008 | **Auth hardening** — Production guard vs dev bypass. Unique dev user IDs per session. Room membership on socket join | — | M | Yes |
-| T-009 | **Rate limit order endpoints** — Apply tradingLimiter to POST /:roomId/order and DELETE /:roomId/order/:orderId | — | S | Yes |
+| T-009 | **Rate limit order endpoints** — Apply tradingLimiter to POST /:roomId/order and DELETE /:roomId/order/:orderId. **Status: DONE** (issue #13) — tradingLimiter mounted at route level in `api/routes/room.ts`, keyed per user since it runs after auth | — | S | Yes |
 | T-010 | **Order spoofing protection** — Max 5 open orders/player/room. 2-second min resting before cancel | T-003 | M | No |
 
 ## Phase 2: Frontend Rebuild (Days 3-7)

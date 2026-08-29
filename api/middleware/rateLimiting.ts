@@ -8,13 +8,53 @@ import { Request, Response } from 'express';
 // Store for tracking requests (can be replaced with Redis in production)
 const requestCounts = new Map<string, { count: number; resetTime: number }>();
 
+/**
+ * Resolve the *real* client IP for rate-limit keying.
+ *
+ * Production topology is: browser -> Cloudflare (cloudflared tunnel) -> Caddy -> Node.
+ * With `app.set('trust proxy', 1)` Express only trusts ONE hop, so `req.ip` becomes
+ * the address Caddy appended to X-Forwarded-For -- i.e. the cloudflared connector,
+ * which is the SAME address for every friend. Everyone then shares one bucket and
+ * four idle lobby tabs exhaust the 15-minute window for the whole group (issue #13).
+ *
+ * Cloudflare sets `CF-Connecting-IP` to the true client address on every request it
+ * proxies, so we prefer that header. We validate the value looks like an IP before
+ * trusting it, because a client hitting the origin *directly* (bypassing Cloudflare)
+ * could forge the header to hop between buckets; a non-IP string is ignored and we
+ * fall back to `req.ip`. Either way the result goes through `ipKeyGenerator`, which
+ * normalises IPv6 (collapses a /56 so one user can't rotate through 2^72 addresses)
+ * and folds IPv4-mapped IPv6 (`::ffff:1.2.3.4`) into plain IPv4 -- the bypass that
+ * the express-rate-limit / ip-address advisory was about.
+ *
+ * Note: if the origin is ever exposed without Cloudflare in front, a spoofed
+ * CF-Connecting-IP still lets an attacker pick their own bucket. The durable fix is
+ * to only accept the header from Cloudflare's IP ranges (or `trust proxy 2` and drop
+ * this header entirely). Good enough for the friend test behind the tunnel.
+ */
+// Loose IPv4 / IPv6 shape check -- enough to reject junk like "user:abc" or a
+// CIDR list, not a full RFC parser (ipKeyGenerator re-parses it properly anyway).
+const IP_SHAPE = /^(\d{1,3}(\.\d{1,3}){3}|[0-9a-fA-F:]+(:\d{1,3}(\.\d{1,3}){3})?)$/;
+
+export const getClientIp = (req: Request): string => {
+  const cfIp = req.get('CF-Connecting-IP')?.trim();
+  if (cfIp && IP_SHAPE.test(cfIp)) {
+    return cfIp;
+  }
+  // `req.ip` is undefined for a socket that already closed; use a stable sentinel
+  // so those requests still share a bucket instead of throwing inside the limiter.
+  return req.ip ?? 'unknown';
+};
+
 // Custom key generator to handle both IP and user-based limiting
 const keyGenerator = (req: Request): string => {
-  // Use authenticated user ID if available, otherwise fall back to IP
+  // Use authenticated user ID if available, otherwise fall back to IP.
+  // (apiLimiter runs before auth in server.ts so this branch only fires for
+  // limiters mounted after `authenticateRequest`, e.g. tradingLimiter on the
+  // order routes -- there each *user* gets their own bucket regardless of IP.)
   if (req.user && req.user.id) {
     return `user:${req.user.id}`;
   }
-  return `ip:${ipKeyGenerator(req.ip ?? '')}`;
+  return `ip:${ipKeyGenerator(getClientIp(req))}`;
 };
 
 // Skip successful requests for certain endpoints
@@ -28,7 +68,10 @@ const shouldSkipRequest = (req: Request, res: Response): boolean => {
 // General API rate limiter
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP/user to 100 requests per windowMs
+  // 600 per 15 min (was 100). Each lobby tab polls ~30x per window, so 100 left
+  // headroom for only ~3 tabs before every order/join/voice call started 429ing.
+  // 600 = ~40 req/min per real client; still tight enough to blunt a naive flood.
+  max: 600,
   message: {
     error: 'Too many requests from this IP, please try again later.',
     retryAfter: 15
@@ -59,11 +102,14 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req: Request): string => {
     // Always use IP for auth endpoints
-    return `auth:${ipKeyGenerator(req.ip ?? '')}`;
+    return `auth:${ipKeyGenerator(getClientIp(req))}`;
   }
 });
 
-// Trading endpoint rate limiter
+// Trading endpoint rate limiter.
+// Mounted globally on `/api/trading/` (below) AND at route level on the order
+// endpoints in routes/room.ts (POST /:roomId/order, DELETE /:roomId/order/:orderId),
+// where it runs *after* authenticateRequest so the key is the user id, not the IP.
 export const tradingLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 20, // Limit each user to 20 trades per minute
@@ -78,7 +124,7 @@ export const tradingLimiter = rateLimit({
     if (req.user && req.user.id) {
       return `trade:${req.user.id}`;
     }
-    return `trade:${ipKeyGenerator(req.ip ?? '')}`;
+    return `trade:${ipKeyGenerator(getClientIp(req))}`;
   }
 });
 
@@ -96,7 +142,7 @@ export const botLimiter = rateLimit({
     if (req.user && req.user.id) {
       return `bot:${req.user.id}`;
     }
-    return `bot:${ipKeyGenerator(req.ip ?? '')}`;
+    return `bot:${ipKeyGenerator(getClientIp(req))}`;
   }
 });
 
@@ -114,7 +160,7 @@ export const voiceLimiter = rateLimit({
     if (req.user && req.user.id) {
       return `voice:${req.user.id}`;
     }
-    return `voice:${ipKeyGenerator(req.ip ?? '')}`;
+    return `voice:${ipKeyGenerator(getClientIp(req))}`;
   }
 });
 
@@ -129,7 +175,7 @@ export const wsLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: Request): string => {
-    return `ws:${ipKeyGenerator(req.ip ?? '')}`;
+    return `ws:${ipKeyGenerator(getClientIp(req))}`;
   }
 });
 
@@ -145,7 +191,7 @@ export const accountCreationLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req: Request): string => {
-    return `signup:${ipKeyGenerator(req.ip ?? '')}`;
+    return `signup:${ipKeyGenerator(getClientIp(req))}`;
   }
 });
 
@@ -162,7 +208,7 @@ export const passwordResetLimiter = rateLimit({
   keyGenerator: (req: Request): string => {
     // Use both IP and email if available
     const email = req.body?.email || '';
-    return `reset:${ipKeyGenerator(req.ip ?? '')}:${email}`;
+    return `reset:${ipKeyGenerator(getClientIp(req))}:${email}`;
   }
 });
 
@@ -242,7 +288,7 @@ export class IPBlocker {
 
   middleware() {
     return (req: Request, res: Response, next: Function) => {
-      if (this.isBlocked(ipKeyGenerator(req.ip ?? ''))) {
+      if (this.isBlocked(ipKeyGenerator(getClientIp(req)))) {
         return res.status(403).json({
           error: 'Forbidden',
           message: 'Your IP has been temporarily blocked due to suspicious activity.'

@@ -5,6 +5,7 @@ import { roomService, RoomServiceError } from '../services/roomService';
 import { botService } from '../services/botService';
 import { sanitizeRoomForPlayer } from '../lib/sanitize';
 import { createSignedReceipt, getPublicKey } from '../lib/signing';
+import { tradingLimiter } from '../middleware/rateLimiting';
 
 const router: Router = Router();
 
@@ -176,8 +177,12 @@ router.get('/public-key', (_req: Request, res: Response) => {
   res.type('text/plain').send(getPublicKey());
 });
 
-// Submit order to order book
-router.post('/:roomId/order', async (req: Request, res: Response) => {
+// Submit order to order book.
+// tradingLimiter (20/min) sits at route level here rather than only on the
+// `/api/trading/` prefix: this router is mounted at `/api/room` *after*
+// authenticateRequest (server.ts), so req.user is populated and the limiter keys
+// per user -- one spammy player can't burn the room's shared IP bucket. (T-009)
+router.post('/:roomId/order', tradingLimiter, async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -210,8 +215,9 @@ router.post('/:roomId/order', async (req: Request, res: Response) => {
   }
 });
 
-// Cancel an order
-router.delete('/:roomId/order/:orderId', async (req: Request, res: Response) => {
+// Cancel an order -- same per-user trading limit as submit, so place+cancel
+// churn (order spoofing) counts against the same 20/min budget. (T-009)
+router.delete('/:roomId/order/:orderId', tradingLimiter, async (req: Request, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Unauthorized' });
   }

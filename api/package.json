@@ -19,7 +19,7 @@
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.5",
     "express": "^5.1.0",
-    "express-rate-limit": "^8.1.0",
+    "express-rate-limit": "^8.6.2",
     "firebase-admin": "^12.7.0",
     "helmet": "^8.1.0",
     "pino": "^9.3.0",
