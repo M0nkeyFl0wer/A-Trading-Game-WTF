@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { onIdTokenChanged } from 'firebase/auth';
 import { sanitizeInput } from '../lib/security';
 import { auth, isDevAuth } from '../lib/firebase';
-import { getDevUserId, devIdToken } from '../lib/devIdentity';
+import { getDevUserId, devIdToken, authHeaders } from '../lib/devIdentity';
 import { io, Socket } from 'socket.io-client';
 
 export type LobbyTablePhase = 'waiting' | 'playing' | 'finished';
@@ -206,11 +206,8 @@ export const useLobbyTables = () => {
     }
 
     try {
-      const headers: HeadersInit = {};
-
-      if (authToken) {
-        headers['Authorization'] = `Bearer ${authToken}`;
-      }
+      // authHeaders() picks Bearer vs X-Dev-User-* (see lib/devIdentity.ts).
+      const headers: Record<string, string> = authHeaders(authToken);
 
       const response = await fetch(ROOMS_ENDPOINT, {
         signal,

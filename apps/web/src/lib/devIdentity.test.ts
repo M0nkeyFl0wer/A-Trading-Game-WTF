@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 // jsdom gives us a real window.localStorage; the root package already ships it.
-import { beforeEach, describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, it, test } from 'vitest';
 import {
   DEV_USER_ID_KEY,
   SAFE_DEV_ID_RE,
   devDisplayName,
   devIdToken,
   getDevUserId,
+  authHeaders,
 } from './devIdentity';
 
 describe('dev identity helper (issue #10)', () => {
@@ -51,5 +52,23 @@ describe('dev identity helper (issue #10)', () => {
     expect(devDisplayName('abcd1234')).toBe('Dev Trader abcd');
     // Same regex the API uses to parse the bearer token.
     expect(devIdToken('abcd1234')).toMatch(/^dev:([a-zA-Z0-9_-]{1,64})$/);
+  });
+});
+
+// authHeaders(): dev tokens must NOT occupy the Authorization header, because
+// the friend-test site sits behind HTTP basic auth at Caddy and a Bearer value
+// would clobber the browser's Basic credential (every API call would 401).
+describe('authHeaders', () => {
+  it('maps a dev token to X-Dev-User-* headers and never sets Authorization', () => {
+    const h = authHeaders('dev:abcd1234');
+    expect(h).toEqual({ 'X-Dev-User-Id': 'abcd1234', 'X-Dev-User-Name': 'Dev Trader abcd' });
+    expect(h.Authorization).toBeUndefined();
+  });
+  it('passes a real (non-dev) token through as a Bearer header', () => {
+    expect(authHeaders('eyJhbGciOi.real.jwt')).toEqual({ Authorization: 'Bearer eyJhbGciOi.real.jwt' });
+  });
+  it('returns no headers for a missing token', () => {
+    expect(authHeaders(null)).toEqual({});
+    expect(authHeaders(undefined)).toEqual({});
   });
 });

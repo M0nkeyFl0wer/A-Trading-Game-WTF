@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useGameStore } from '../store';
 import { voiceService } from '../lib/elevenlabs';
+import { authHeaders } from '../lib/devIdentity';
 
 interface OrderFormProps {
   roomId: string;
@@ -37,7 +38,7 @@ export default function OrderForm({ roomId, disabled, myCardValue }: OrderFormPr
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          ...authHeaders(token),
         },
         body: JSON.stringify({ price, quantity, side }),
       });

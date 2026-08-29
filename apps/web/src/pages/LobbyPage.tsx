@@ -11,6 +11,7 @@ import CharacterStrip from '../ui/CharacterStrip';
 import { useLobbyTables } from '../hooks/useLobbyTables';
 import { type LobbyTableSummary } from '../hooks/useLobbyTables';
 import { useAuth } from '../contexts/AuthContext';
+import { authHeaders } from '../lib/devIdentity';
 
 export default function LobbyPage() {
   const setGamePhase = useGameStore(state => state.setGamePhase);
@@ -45,7 +46,7 @@ export default function LobbyPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          ...authHeaders(token),
         },
         body: JSON.stringify({
           name: config.name,
@@ -84,9 +85,7 @@ export default function LobbyPage() {
       const token = await requireAuthToken('join a table');
       const response = await fetch(`/api/room/join/${table.id}`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: authHeaders(token),
       });
 
       const payload = await response.json().catch(() => ({}));

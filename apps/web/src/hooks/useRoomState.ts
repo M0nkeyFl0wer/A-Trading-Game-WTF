@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type { Order, MatchedTrade, TradingPhase } from '@trading-game/shared';
 import { sanitizeInput } from '../lib/security';
+import { authHeaders } from '../lib/devIdentity';
 import { useAuth } from '../contexts/AuthContext';
 import {
   useGameStore,
@@ -238,11 +239,9 @@ export function useRoomState(roomId?: string) {
       setStatus('loading');
       setError(null);
       try {
-        const headers: HeadersInit = {};
-        if (currentUser) {
-          const token = await currentUser.getIdToken();
-          headers.Authorization = `Bearer ${token}`;
-        }
+        const headers: Record<string, string> = currentUser
+          ? authHeaders(await currentUser.getIdToken())
+          : {};
         const response = await fetch(buildRoomUrl(roomId), {
           headers,
           signal: controller.signal,

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Order } from '@trading-game/shared';
 import { useGameStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
+import { authHeaders } from '../lib/devIdentity';
 
 interface AggregatedLevel {
   price: number;
@@ -73,7 +74,7 @@ export default function OrderBookDisplay({ roomId }: OrderBookDisplayProps) {
       const token = await currentUser.getIdToken();
       const response = await fetch(`${API_BASE}/api/room/${roomId}/order/${orderId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authHeaders(token),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));

@@ -16,6 +16,7 @@ import type { Commentary } from '../store';
 import { useRoomState } from '../hooks/useRoomState';
 import { useAuth } from '../contexts/AuthContext';
 import { voiceService } from '../lib/elevenlabs';
+import { authHeaders } from '../lib/devIdentity';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
@@ -118,7 +119,7 @@ export default function TablePage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          ...authHeaders(token),
         },
       });
       if (!response.ok) {
@@ -144,7 +145,7 @@ export default function TablePage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+          ...authHeaders(token),
         },
       });
       if (!response.ok) {

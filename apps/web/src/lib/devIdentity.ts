@@ -72,3 +72,25 @@ export const devDisplayName = (uid: string): string => `Dev Trader ${uid.slice(0
 
 /** The bearer token the API's dev bypass parses: `dev:<uid>`. */
 export const devIdToken = (uid: string): string => `dev:${uid}`;
+
+/**
+ * Build the auth headers for an API call from an id token.
+ *
+ * Real Firebase tokens travel as `Authorization: Bearer <jwt>`. Dev tokens
+ * (`dev:<uid>`) deliberately do NOT: a request carries only one Authorization
+ * header, and the friend-test deployment fronts the whole site with HTTP
+ * basic auth at Caddy. A Bearer value would REPLACE the browser's cached Basic
+ * credential, so Caddy would 401 every authenticated call before it reached
+ * the API (found by the first two-browser test, 2026-08-29). The API's dev
+ * bypass already accepts the identity via `X-Dev-User-Id` / `X-Dev-User-Name`
+ * (`api/lib/devIdentity.ts`), so in dev mode we use those and leave the
+ * Authorization slot to the browser.
+ */
+export const authHeaders = (token: string | null | undefined): Record<string, string> => {
+  if (!token) return {};
+  const dev = /^dev:([a-zA-Z0-9_-]{1,64})$/.exec(token);
+  if (dev) {
+    return { 'X-Dev-User-Id': dev[1], 'X-Dev-User-Name': devDisplayName(dev[1]) };
+  }
+  return { Authorization: `Bearer ${token}` };
+};
