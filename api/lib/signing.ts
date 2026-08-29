@@ -2,8 +2,12 @@ import { generateKeyPairSync, sign, verify } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { logger } from './logger';
+import { DATA_DIR } from './dataDir';
 
-const KEY_DIR = path.join(__dirname, '..', 'data');
+// Keys live under the shared DATA_DIR (issue #15) so they survive a switch
+// between tsx and a compiled dist and can be placed on a persistent volume.
+// Exported so server.ts can log the resolved location at boot.
+export const KEY_DIR = DATA_DIR;
 const PRIVATE_KEY_PATH = path.join(KEY_DIR, 'server.key');
 const PUBLIC_KEY_PATH = path.join(KEY_DIR, 'server.pub');
 
