@@ -1,0 +1,47 @@
+# ---------------------------------------------------------------------------
+# A-Trading-Game-WTF — friend-test site block for the elephant-room Caddy
+# (~/Projects/elephant-room/Caddyfile, admin 127.0.0.1:2020).
+#
+# Topology: Cloudflare edge (TLS) -> cloudflared -> this block (plain HTTP on
+# loopback) -> SPA static files, with /api/* and /socket.io/* proxied to the
+# Node API. The API does NOT serve the SPA, so the split below is required.
+#
+# Ports were verified free on 2026-08-28 (fuser). Re-check before reload.
+#   8018 = this site (tunnel ingress target)
+#   8019 = the Node API (deploy/trading-game-api.service)
+#
+# ALWAYS the explicit `http://` scheme + a dedicated port: a bare host:port
+# block is served as HTTPS and the tunnel then gets 400 "HTTP request to
+# HTTPS server" (see skill homelab-hosting).
+# ---------------------------------------------------------------------------
+http://trading.elephantroom.ca:8018 {
+	encode zstd gzip
+
+	# Live API + websocket. Caddy v2 forwards the Upgrade handshake itself.
+	@api path /api/* /socket.io/*
+	handle @api {
+		reverse_proxy 127.0.0.1:8019
+	}
+
+	# Everything else is the Vite build; deep links (/table/<id>) fall back
+	# to index.html so the SPA router can handle them.
+	handle {
+		root * /home/m0nk/Projects/A-Trading-Game-WTF/apps/web/dist
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Optional gate for the friend test: uncomment and paste a bcrypt hash
+	# generated per the homelab-hosting recipe (never the plaintext).
+	# basicauth {
+	# 	friend $2b$14$...
+	# }
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), geolocation=()"
+		-Server
+	}
+}

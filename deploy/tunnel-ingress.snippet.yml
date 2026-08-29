@@ -1,0 +1,6 @@
+# Add to ~/.cloudflared/config-elephantroom.yml ABOVE the http_status:404
+# catch-all, then:
+#   cloudflared tunnel route dns --overwrite-dns 4bf852df-23ea-4be4-9aa0-efe791552b54 trading.elephantroom.ca
+#   systemctl --user restart elephantroom-tunnel.service   # ingress needs a restart, SIGHUP won't do
+  - hostname: trading.elephantroom.ca
+    service: http://127.0.0.1:8018

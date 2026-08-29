@@ -1,0 +1,32 @@
+# User systemd unit for the A-Trading-Game-WTF API (Express + Socket.IO + SQLite).
+#
+# Install:
+#   cp deploy/trading-game-api.service ~/.config/systemd/user/
+#   cp deploy/api.env.example ~/.config/trading-game/api.env   # then edit
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now trading-game-api.service     # enable, not just start
+#
+# Runs via tsx (issue: "API has no launch script") because ts-node cannot load
+# the workspace packages; ExecStart uses the nvm Node 22 binary explicitly since
+# /usr/bin/node is 18 and the native better-sqlite3 binding is built for 22.
+
+[Unit]
+Description=A-Trading-Game API (express + socket.io) on 127.0.0.1:8019
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/A-Trading-Game-WTF/api
+EnvironmentFile=%h/.config/trading-game/api.env
+# NODE_ENV deliberately unset: production mode currently crashes on the helmet
+# CSP bug and refuses AUTH_DEV_BYPASS (issues M3). Revisit after those land.
+ExecStart=%h/.nvm/versions/node/v22.22.2/bin/node %h/Projects/A-Trading-Game-WTF/api/node_modules/.bin/tsx server.ts
+Restart=on-failure
+RestartSec=3
+# SIGTERM triggers the server's graceful shutdown (closes SQLite, HTTP).
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target
