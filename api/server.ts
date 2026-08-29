@@ -202,6 +202,9 @@ roomEvents.on('room:updated', (room: any) => {
     maxPlayers: room.maxPlayers,
     players: room.players?.map((p: any) => ({ id: p.id, name: p.name, character: p.character, isBot: p.isBot })),
     updatedAt: room.updatedAt,
+    // createdAt lets the lobby keep a stable sort order; without it the client
+    // falls back to Date.now() and re-orders the list on every event (#12).
+    createdAt: room.createdAt,
     roundNumber: room.roundNumber,
   };
   io.emit('rooms:lobby-update', lobbyView);
