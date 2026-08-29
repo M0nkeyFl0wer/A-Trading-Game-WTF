@@ -2,3 +2,15 @@ packages:
   - packages/*
   - apps/*
   - api
+
+# pnpm >= 10 reads build-script approvals from here, not package.json.
+# true  = native modules that MUST run their install scripts
+# false = optional native accelerators / telemetry hooks we deliberately skip
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+  '@firebase/util': false
+  bufferutil: false
+  keccak: false
+  protobufjs: false
+  utf-8-validate: false
