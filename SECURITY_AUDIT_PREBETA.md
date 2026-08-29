@@ -5,7 +5,7 @@
 ### 1. **API Key Exposure** 🔴 CRITICAL
 **Location**: `/apps/web/.env`, `CLAUDE.md`
 ```
-VITE_ELEVENLABS_API_KEY=sk_f85aef54491c196dc5e4c171cd5fdfc828d85e914f37309
+VITE_ELEVENLABS_API_KEY=sk_<REDACTED-ROTATE-THIS-KEY>
 ```
 **Risk**: API key exposed in documentation and commits
 **Fix**:
@@ -451,7 +451,7 @@ alerts:
 ### Priority 1 (Do Today):
 ```bash
 # 1. Remove exposed API key
-sed -i 's/sk_f85aef54491c196dc5e4c171cd5fdfc828d85e914f37309/REDACTED/g' CLAUDE.md
+sed -i 's/sk_<REDACTED-ROTATE-THIS-KEY>/REDACTED/g' CLAUDE.md
 
 # 2. Update .gitignore
 echo ".env" >> .gitignore
