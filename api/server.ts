@@ -20,7 +20,6 @@ import './services/kgOrderListener';  // auto-subscribes to game events for KG p
 import rootRoutes from './routes/index';
 import authRoutes from './routes/auth';
 import tradingRoutes from './routes/trading';
-import botRoutes from './routes/bot';
 import roomRoutes from './routes/room';
 import userRoutes from './routes/user';
 import voiceRoutes from './routes/voice';
@@ -97,7 +96,15 @@ app.get('/api/health', (req: Request, res: Response) => {
 app.use('/api', rootRoutes);
 app.use('/api/auth', attachOptionalUser, authRoutes);
 app.use('/api/trading', authenticateRequest, tradingRoutes);
-app.use('/api/bot', authenticateRequest, botRoutes);
+// NOTE: there is deliberately NO `app.use('/api/bot', ...)` mount here (issue #3).
+// api/routes/bot.ts + packages/bot/src/sandbox ran USER-SUPPLIED code in Node's
+// `vm` module behind a regex blocklist. `vm` is documented as not a security
+// boundary and the escape was reproduced: a "bot" reached
+// `process.mainModule.require('child_process')` via the constructor chain and ran
+// `id` on the host. The files stay in the tree as reference for a future
+// out-of-process design (isolated-vm / a network- and FS-denied container), but
+// they must not be mounted again. Server-side personality bots
+// (services/botService.ts) never run user code and are unaffected.
 app.use('/api/room', authenticateRequest, roomRoutes);
 app.use('/api/user', authenticateRequest, userRoutes);
 app.use('/api/voice', authenticateRequest, voiceRoutes);
