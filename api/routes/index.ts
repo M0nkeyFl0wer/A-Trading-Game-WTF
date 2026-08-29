@@ -15,7 +15,7 @@ router.get('/', (_req: Request, res: Response) => {
       rooms: '/api/rooms',
       characters: '/api/characters',
       voice: '/api/voice',
-      bot: '/api/bot',
+      // '/api/bot' removed: the user-code bot endpoint is unmounted (issue #3).
     },
   });
 });

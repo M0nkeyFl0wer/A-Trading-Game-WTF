@@ -6,31 +6,79 @@ import { Request, Response, NextFunction } from 'express';
  * Security headers middleware for CORS, CSP, and other protections
  */
 
+// ---------------------------------------------------------------------------
+// CORS allowlist (issue #9)
+// ---------------------------------------------------------------------------
+//
+// ONE list, built once at import time, shared by Express `cors()` AND the
+// Socket.IO server (server.ts passes the same `corsOptions`). The old code kept
+// two hard-coded copies (Vercel hosts / localhost) that had already drifted, and
+// offered no env override -- so every browser POST from a tunnel hostname, LAN
+// IP or Tailscale name failed.
+//
+// Sources, in order:
+//   1. ALLOWED_ORIGINS  -- comma-separated, whitespace-trimmed, empty entries
+//      dropped. This is the ONLY source in production.
+//   2. Localhost dev defaults (Vite on 3000, API on 3001) -- appended only when
+//      NODE_ENV !== 'production', so a bare `pnpm dev` keeps working.
+//
+// In production an EMPTY list is a configuration error, not a "deny all": the
+// operator forgot to set ALLOWED_ORIGINS and every browser client would silently
+// 403. We exit at boot instead, mirroring the AUTH_DEV_BYPASS guard in server.ts.
+const DEV_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+];
+
+/** Parse ALLOWED_ORIGINS into a clean list (exported so tests can check it). */
+export function parseAllowedOrigins(raw: string | undefined, nodeEnv: string | undefined): string[] {
+  const fromEnv = (raw ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
+  return nodeEnv === 'production' ? fromEnv : [...fromEnv, ...DEV_ORIGINS];
+}
+
+export const allowedOrigins: string[] = parseAllowedOrigins(
+  process.env.ALLOWED_ORIGINS,
+  process.env.NODE_ENV,
+);
+
+if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
+  console.error('FATAL: ALLOWED_ORIGINS must list at least one browser origin in production (comma-separated)');
+  process.exit(1);
+}
+
+/**
+ * Error thrown for a disallowed Origin. Carries `status = 403` so the global
+ * error handler in server.ts answers 403 Forbidden instead of the generic 500
+ * (the cors package hands this error to `next(err)`, it does not respond itself).
+ * We never call `callback(null, false)`: that only omits the ACAO header and the
+ * request would still reach the route handler and mutate state.
+ */
+export class CorsOriginError extends Error {
+  status = 403;
+  constructor(origin: string) {
+    super(`Origin ${origin} is not allowed by CORS`);
+    this.name = 'CorsOriginError';
+  }
+}
+
 // CORS configuration
 export const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
-    const allowedOrigins = process.env.NODE_ENV === 'production'
-      ? [
-          'https://trading-game.vercel.app',
-          'https://www.trading-game.com',
-          'https://a-trading-game-wtf.vercel.app'
-        ]
-      : [
-          'http://localhost:3000',
-          'http://localhost:3001',
-          'http://127.0.0.1:3000',
-          'http://127.0.0.1:3001'
-        ];
-
-    // Allow requests with no origin (like mobile apps or Postman)
+    // No Origin header = same-origin navigation, curl, server-to-server. Not a
+    // cross-origin browser request, so there is nothing for CORS to gate.
     if (!origin) {
       return callback(null, true);
     }
 
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      callback(new CorsOriginError(origin));
     }
   },
   credentials: true,
@@ -103,7 +151,10 @@ export const cspConfig = {
     formAction: ["'self'"],
     frameAncestors: ["'none'"],
     upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? ([] as string[]) : undefined,
-    reportUri: process.env.CSP_REPORT_URI || undefined
+    // helmet 8 validates every directive value: `reportUri: undefined` is
+    // rejected ("invalid directive value") and crashed every production boot
+    // (issue #17). Only spread the key in when a report URI is configured.
+    ...(process.env.CSP_REPORT_URI ? { reportUri: process.env.CSP_REPORT_URI } : {}),
   }
 };
 
@@ -114,10 +165,8 @@ export const helmetConfig = {
   crossOriginOpenerPolicy: { policy: 'same-origin' },
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   dnsPrefetchControl: { allow: false },
-  expectCt: {
-    maxAge: 86400,
-    enforce: true
-  },
+  // `expectCt` was removed in helmet 8 (Expect-CT is deprecated by browsers);
+  // the key was silently ignored, so it is dropped rather than carried around.
   frameguard: { action: 'deny' },
   hidePoweredBy: true,
   hsts: {
@@ -269,7 +318,14 @@ export const sanitizeResponse = (req: Request, res: Response, next: NextFunction
 // Clickjacking protection
 export const clickjackingProtection = (req: Request, res: Response, next: NextFunction) => {
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  // Helmet already emits a full CSP in production (which includes
+  // `frame-ancestors 'none'`). Unconditionally setting the header here used to
+  // REPLACE that whole policy with this one directive -- surfaced by the #17
+  // smoke once production could boot at all. Only add the header when nothing
+  // else has set one (i.e. non-production, where helmet's CSP is off).
+  if (!res.getHeader('Content-Security-Policy')) {
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  }
   next();
 };
 
@@ -336,6 +392,7 @@ export const handlePreflight = (req: Request, res: Response, next: NextFunction)
 };
 
 export default {
+  allowedOrigins,
   corsOptions,
   cspConfig,
   helmetConfig,

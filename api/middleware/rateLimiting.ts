@@ -315,7 +315,9 @@ export const applyRateLimiting = (app: any) => {
   app.use('/api/auth/signup', accountCreationLimiter);
   app.use('/api/auth/reset', passwordResetLimiter);
   app.use('/api/trading/', tradingLimiter);
-  app.use('/api/bot/', botLimiter);
+  // '/api/bot/' is intentionally not mounted: the user-code bot route was
+  // unmounted in server.ts (issue #3). botLimiter stays exported for a future
+  // sandboxed re-introduction.
   app.use('/api/voice/', voiceLimiter);
   app.use('/ws/', wsLimiter);
 };

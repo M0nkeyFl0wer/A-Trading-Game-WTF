@@ -2,9 +2,12 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { logger } from '../lib/logger';
+import { DATA_DIR } from '../lib/dataDir';
 
-const DB_DIR = path.join(__dirname, '..', 'data');
-const DB_PATH = process.env.DB_PATH || path.join(DB_DIR, 'game.db');
+// Explicit DB_PATH wins (tests point it at a temp file); otherwise the DB sits
+// in the shared DATA_DIR next to the signing keys (issue #15). Exported so
+// server.ts can log the resolved path at boot.
+export const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, 'game.db');
 
 let db: Database.Database | null = null;
 
