@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { sanitizeInput } from '../lib/security';
 import ConnectWalletButton from '../ui/ConnectWalletButton';
+import { WALLET_ENABLED } from '../lib/featureFlags';
 
 interface PaymentMethod {
   id: 'wallet' | 'card' | 'bank';
@@ -205,7 +206,7 @@ export default function PaymentsPage() {
           </p>
         </div>
         <div className="page__actions">
-          <ConnectWalletButton />
+          {WALLET_ENABLED && <ConnectWalletButton />}
         </div>
       </header>
 

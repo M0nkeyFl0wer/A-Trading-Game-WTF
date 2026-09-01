@@ -6,6 +6,7 @@ import { useGameStore } from '../store';
 import CreateTableModal from '../ui/CreateTableModal';
 import { type CreateTableConfig } from '../ui/CreateTableModal';
 import ConnectWalletButton from '../ui/ConnectWalletButton';
+import { WALLET_ENABLED, CREDITS_ENABLED } from '../lib/featureFlags';
 import VoiceControlsMini from '../ui/VoiceControlsMini';
 import CharacterStrip from '../ui/CharacterStrip';
 import { useLobbyTables } from '../hooks/useLobbyTables';
@@ -128,13 +129,15 @@ export default function LobbyPage() {
           )}
         </div>
         <div className="page__actions">
-          <Link to="/payments" className="button button--neutral">
-            Payments
-          </Link>
+          {CREDITS_ENABLED && (
+            <Link to="/payments" className="button button--neutral">
+              Buy credits
+            </Link>
+          )}
           <button type="button" className="button button--ghost" onClick={refresh} disabled={isLoading}>
             Refresh
           </button>
-          <ConnectWalletButton />
+          {WALLET_ENABLED && <ConnectWalletButton />}
         </div>
       </header>
 

@@ -9,6 +9,7 @@ import TradeTape from '../ui/TradeTape';
 import SeatAvatars from '../ui/SeatAvatars';
 import SettlementScreen from '../ui/SettlementScreen';
 import ConnectWalletButton from '../ui/ConnectWalletButton';
+import { WALLET_ENABLED } from '../lib/featureFlags';
 import VoiceControlsMini from '../ui/VoiceControlsMini';
 import { useGameVoice } from '../hooks/useGameVoice';
 import { useGameStore } from '../store';
@@ -198,7 +199,7 @@ export default function TablePage() {
           <button type="button" className="button button--ghost" onClick={handleLeaveTable}>
             &larr; Leave table
           </button>
-          <ConnectWalletButton />
+          {WALLET_ENABLED && <ConnectWalletButton />}
         </div>
       </header>
 
