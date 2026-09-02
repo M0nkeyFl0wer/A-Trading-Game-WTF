@@ -151,8 +151,19 @@ export const voiceLimiter = rateLimit({
   windowMs: 60 * 1000,
   // 60/min per user: a live round narrates the dealer plus up to five character
   // bots, each line a separate /speak call, so 15/min throttled real gameplay to
-  // 429s (voice "did nothing"). Audio is cached server-side by (voice,style,text),
-  // so repeated lines cost one ElevenLabs call then serve from cache.
+  // 429s (voice "did nothing").
+  //
+  // Note what caching does and does not buy here. Audio IS cached server-side by
+  // (voice, style, text), so a repeated line costs one ElevenLabs call and then
+  // serves from cache -- but this limiter is mounted app-level (see
+  // applyRateLimiting below), ahead of the route, while the cache lookup lives
+  // inside the handler. A cache hit therefore still consumes limiter quota:
+  // caching cuts SPEND, not throttle pressure. If 60 proves too low under load,
+  // skip the limiter on a cache hit rather than raising the ceiling again.
+  //
+  // Cache keys are per-character since the voices work landed, so one line in
+  // five voices is five entries against a 100-entry / 5-minute LRU -- the
+  // effective hit rate is lower than the key scheme suggests.
   max: 60,
   message: {
     error: 'Voice rate limit exceeded.',
