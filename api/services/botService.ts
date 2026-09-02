@@ -1,8 +1,14 @@
 import { logger } from '../lib/logger';
 import { roomService, RoomServiceError, type RoomRecord, type RoomPlayer } from './roomService';
 import { roomEvents } from '../lib/roomEvents';
+import { gameEvents, type GameEvent } from '../lib/gameEvents';
 import { FloorCoordinator } from '../agents/floorCoordinator';
-import { createPersonalityAgent } from '../agents/personalities';
+import { createPersonalityAgent, estimateFairValue, PERSONALITY_CONFIGS } from '../agents/personalities';
+
+// A targeted quote request deserves a faster answer than the passive 3s tick
+// loop that drives ordinary order-book flow.
+const QUOTE_RESPONSE_DELAY_MIN_MS = 800;
+const QUOTE_RESPONSE_DELAY_JITTER_MS = 700;
 
 // ---------------------------------------------------------------------------
 // Coordinator singleton
@@ -93,6 +99,54 @@ class BotService {
   }
 
   // -----------------------------------------------------------------------
+  // Quote requests: auto-respond on behalf of a bot target
+  // -----------------------------------------------------------------------
+
+  async handleQuoteRequest(event: GameEvent): Promise<void> {
+    const { roomId, payload } = event;
+    const quoteId = payload.quoteId as string | undefined;
+    const targetId = payload.targetId as string | undefined;
+    if (!quoteId || !targetId) return;
+
+    try {
+      const room = await roomService.getRoom(roomId);
+      const target = room.players.find((p) => p.id === targetId);
+      if (!target?.isBot) return;
+
+      const delay = QUOTE_RESPONSE_DELAY_MIN_MS + Math.random() * QUOTE_RESPONSE_DELAY_JITTER_MS;
+      setTimeout(() => {
+        this.respondToQuoteAsBot(roomId, quoteId, targetId).catch((err) =>
+          logger.error({ err, roomId, quoteId }, 'bot quote auto-response failed'),
+        );
+      }, delay);
+    } catch (err) {
+      logger.error({ err, roomId, quoteId }, 'bot quote-request handling failed');
+    }
+  }
+
+  private async respondToQuoteAsBot(roomId: string, quoteId: string, botId: string): Promise<void> {
+    const room = await roomService.getRoom(roomId);
+    const gs = room.gameState;
+    if (!gs) return;
+
+    // Quote may already be expired, answered by a human hand, or the phase
+    // may have moved on and dropped it -- silently no-op, never crash the timer.
+    const quote = gs.quotes?.find((q) => q.id === quoteId);
+    if (!quote || quote.status !== 'pending') return;
+
+    const bot = room.players.find((p) => p.id === botId);
+    const botCard = gs.playerCards.find((c) => c.id === botId);
+    if (!bot || !botCard) return;
+
+    const fairValue = estimateFairValue(botCard.value, gs.revealedCommunityCards, room.players.length);
+    const config = PERSONALITY_CONFIGS[bot.character] ?? PERSONALITY_CONFIGS.ROOKIE;
+    const jitter = (Math.random() - 0.5) * (config.spreadWidth / 2);
+    const mid = Math.round(fairValue + jitter);
+
+    await roomService.respondToQuote(roomId, botId, quoteId, mid - 1, mid + 1);
+  }
+
+  // -----------------------------------------------------------------------
   // Shutdown
   // -----------------------------------------------------------------------
 
@@ -116,4 +170,13 @@ roomEvents.on('room:updated', (room: unknown) => {
   } catch (err) {
     logger.error({ err }, 'botService room:updated handler error');
   }
+});
+
+// Listen for quote requests targeting a bot, so it can answer without
+// waiting on the passive tick loop.
+gameEvents.on('game_event', (event: GameEvent) => {
+  if (event.type !== 'quote_request') return;
+  botService.handleQuoteRequest(event).catch((err) =>
+    logger.error({ err }, 'botService quote_request handler error'),
+  );
 });

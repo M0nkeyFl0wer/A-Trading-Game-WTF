@@ -62,6 +62,24 @@ export function sanitizeRoomForPlayer(room: RoomRecord, playerId: string | undef
     commitments: gs.commitments,
     // Revealed nonces are published progressively (safe)
     revealedNonces: gs.revealedNonces,
+    // Quotes are private two-way prices -- only the requester/target see the
+    // priced numbers; everyone else sees just enough to know a quote exists.
+    quotes: gs.quotes?.map((quote) => {
+      const isParty = quote.requesterId === playerId || quote.targetId === playerId;
+      return {
+        id: quote.id,
+        requesterId: quote.requesterId,
+        requesterName: quote.requesterName,
+        targetId: quote.targetId,
+        targetName: quote.targetName,
+        status: quote.status,
+        createdAt: quote.createdAt,
+        expiresAt: quote.expiresAt,
+        bidPrice: isParty ? quote.bidPrice : undefined,
+        askPrice: isParty ? quote.askPrice : undefined,
+        resolution: isParty ? quote.resolution : undefined,
+      };
+    }),
   };
 
   // Only reveal secrets after settlement

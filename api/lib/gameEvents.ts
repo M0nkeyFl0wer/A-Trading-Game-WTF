@@ -6,7 +6,10 @@ export type GameEventType =
   | 'order_submit'
   | 'order_cancel'
   | 'trade_match'
-  | 'settlement';
+  | 'settlement'
+  | 'quote_request'
+  | 'quote_respond'
+  | 'quote_fill';
 
 export interface GameEvent {
   type: GameEventType;

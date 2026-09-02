@@ -47,6 +47,29 @@ const parseOrderPayload = (body: any) => {
   return { price, quantity, side: side as 'bid' | 'ask' };
 };
 
+const parseTargetPayload = (body: any): string => {
+  const targetId = typeof body?.targetId === 'string' ? sanitizeInput(body.targetId).trim() : '';
+  if (!targetId) {
+    throw new RoomServiceError(400, 'targetId is required');
+  }
+  return targetId;
+};
+
+const parseQuoteResponsePayload = (body: any): { bidPrice: number; askPrice: number } => {
+  const bidPrice = Number(body?.bidPrice);
+  const askPrice = Number(body?.askPrice);
+  if (!Number.isFinite(bidPrice) || bidPrice < MIN_PRICE || bidPrice > MAX_PRICE) {
+    throw new RoomServiceError(400, `Bid must be between ${MIN_PRICE} and ${MAX_PRICE}`);
+  }
+  if (!Number.isFinite(askPrice) || askPrice < MIN_PRICE || askPrice > MAX_PRICE) {
+    throw new RoomServiceError(400, `Ask must be between ${MIN_PRICE} and ${MAX_PRICE}`);
+  }
+  if (askPrice - bidPrice !== 2) {
+    throw new RoomServiceError(400, 'Ask must be exactly 2 points above bid');
+  }
+  return { bidPrice, askPrice };
+};
+
 const normalizeRoomId = (value: string | string[] | undefined): string => {
   const id = Array.isArray(value) ? value[0] : value;
   return sanitizeInput(id ?? '').trim();
@@ -254,6 +277,92 @@ router.delete('/:roomId/order/:orderId', tradingLimiter, async (req: Request, re
       orderId,
     });
 
+    return res.status(200).json({ success: true, room: sanitizeRoomForPlayer(room, req.user.id), receipt });
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
+});
+
+// Request a two-way quote from a named player. Same per-user trading limit
+// as order submission -- one active outbound request at a time is also
+// enforced service-side, but the limiter caps the request rate itself.
+router.post('/:roomId/quote/request', tradingLimiter, async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const roomId = normalizeRoomId(req.params.roomId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+  try {
+    const targetId = parseTargetPayload(req.body);
+    const room = await roomService.requestQuote(roomId, req.user.id, targetId);
+    return res.status(200).json({ success: true, room: sanitizeRoomForPlayer(room, req.user.id) });
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
+});
+
+// Respond to a pending quote request with a two-way price (bid/ask exactly 2 apart).
+router.post('/:roomId/quote/:quoteId/respond', tradingLimiter, async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const roomId = normalizeRoomId(req.params.roomId);
+  const quoteId = normalizeRoomId(req.params.quoteId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+  if (!quoteId) {
+    return res.status(400).json({ error: 'Quote ID is required' });
+  }
+  try {
+    const { bidPrice, askPrice } = parseQuoteResponsePayload(req.body);
+    const room = await roomService.respondToQuote(roomId, req.user.id, quoteId, bidPrice, askPrice);
+    return res.status(200).json({ success: true, room: sanitizeRoomForPlayer(room, req.user.id) });
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
+});
+
+// Hit the bid on a quoted request -- the requester sells to the target.
+router.post('/:roomId/quote/:quoteId/hit', tradingLimiter, async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const roomId = normalizeRoomId(req.params.roomId);
+  const quoteId = normalizeRoomId(req.params.quoteId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+  if (!quoteId) {
+    return res.status(400).json({ error: 'Quote ID is required' });
+  }
+  try {
+    const room = await roomService.hitQuote(roomId, req.user.id, quoteId);
+    const receipt = createSignedReceipt({ type: 'quote_fill', roomId, playerId: req.user.id, quoteId, side: 'hit' });
+    return res.status(200).json({ success: true, room: sanitizeRoomForPlayer(room, req.user.id), receipt });
+  } catch (error) {
+    return handleRoomError(error, res);
+  }
+});
+
+// Lift the ask on a quoted request -- the requester buys from the target.
+router.post('/:roomId/quote/:quoteId/lift', tradingLimiter, async (req: Request, res: Response) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const roomId = normalizeRoomId(req.params.roomId);
+  const quoteId = normalizeRoomId(req.params.quoteId);
+  if (!roomId) {
+    return res.status(400).json({ error: 'Room ID is required' });
+  }
+  if (!quoteId) {
+    return res.status(400).json({ error: 'Quote ID is required' });
+  }
+  try {
+    const room = await roomService.liftQuote(roomId, req.user.id, quoteId);
+    const receipt = createSignedReceipt({ type: 'quote_fill', roomId, playerId: req.user.id, quoteId, side: 'lift' });
     return res.status(200).json({ success: true, room: sanitizeRoomForPlayer(room, req.user.id), receipt });
   } catch (error) {
     return handleRoomError(error, res);

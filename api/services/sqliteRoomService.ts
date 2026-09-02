@@ -542,6 +542,170 @@ export class SqliteRoomService {
   }
 
   // ---------------------------------------------------------------------------
+  // Two-way quote requests
+  // ---------------------------------------------------------------------------
+
+  async requestQuote(roomId: string, requesterId: string, targetId: string): Promise<RoomRecord> {
+    const updated = this.db.transaction(() => {
+      const room = this.loadRoom(roomId);
+      const phase = room.status;
+      if (phase !== 'blind' && phase !== 'flop' && phase !== 'turn') {
+        throw new RoomServiceError(400, 'Round is not accepting quote requests');
+      }
+      if (requesterId === targetId) {
+        throw new RoomServiceError(400, 'Cannot request a quote from yourself');
+      }
+
+      const requester = room.players.find((p) => p.id === requesterId);
+      if (!requester) {
+        throw new RoomServiceError(404, 'Player not found in room');
+      }
+      const target = room.players.find((p) => p.id === targetId);
+      if (!target) {
+        throw new RoomServiceError(404, 'Target player not found in room');
+      }
+
+      // Max one active outbound quote per requester -- kills spam-pinging one target.
+      const activeRequest = (room.gameState?.quotes ?? []).find(
+        (q) => q.requesterId === requesterId && (q.status === 'pending' || q.status === 'quoted'),
+      );
+      if (activeRequest) {
+        throw new RoomServiceError(400, 'You already have an active quote request');
+      }
+
+      const gameState = gameEngine.requestQuote(room, requesterId, requester.name, targetId, target.name);
+      const updatedRoom: RoomRecord = { ...room, gameState, updatedAt: Date.now() };
+      this.persistRoom(updatedRoom);
+      return updatedRoom;
+    })();
+
+    // The invariant above guarantees exactly one fresh 'pending' quote from this requester.
+    const quote = updated.gameState?.quotes?.find(
+      (q) => q.requesterId === requesterId && q.status === 'pending',
+    );
+    emitGameEvent('quote_request', roomId, updated.roundNumber, {
+      quoteId: quote?.id,
+      requesterId,
+      targetId,
+    });
+    emitRoomUpdated(updated);
+    return updated;
+  }
+
+  async respondToQuote(
+    roomId: string,
+    targetId: string,
+    quoteId: string,
+    bidPrice: number,
+    askPrice: number,
+  ): Promise<RoomRecord> {
+    const updated = this.db.transaction(() => {
+      const room = this.loadRoom(roomId);
+      const phase = room.status;
+      if (phase !== 'blind' && phase !== 'flop' && phase !== 'turn') {
+        throw new RoomServiceError(400, 'Round is not accepting quote responses');
+      }
+
+      const quote = room.gameState?.quotes?.find((q) => q.id === quoteId);
+      if (!quote) {
+        throw new RoomServiceError(404, 'Quote request not found');
+      }
+      if (quote.targetId !== targetId) {
+        throw new RoomServiceError(403, 'Only the requested player can respond to this quote');
+      }
+      if (quote.status !== 'pending') {
+        throw new RoomServiceError(409, 'Quote request is no longer open');
+      }
+      if (Date.now() >= quote.expiresAt) {
+        throw new RoomServiceError(400, 'Quote request expired');
+      }
+
+      let gameState: RoomGameState;
+      try {
+        gameState = gameEngine.respondToQuote(room, quoteId, bidPrice, askPrice);
+      } catch (err) {
+        throw new RoomServiceError(400, err instanceof Error ? err.message : 'Invalid quote response');
+      }
+
+      const updatedRoom: RoomRecord = { ...room, gameState, updatedAt: Date.now() };
+      this.persistRoom(updatedRoom);
+      return updatedRoom;
+    })();
+
+    emitGameEvent('quote_respond', roomId, updated.roundNumber, { quoteId, targetId, bidPrice, askPrice });
+    emitRoomUpdated(updated);
+    return updated;
+  }
+
+  /** Shared by hitQuote/liftQuote -- the only difference is which side of the quote the requester takes. */
+  private async resolveQuote(
+    roomId: string,
+    requesterId: string,
+    quoteId: string,
+    side: 'hit' | 'lift',
+  ): Promise<RoomRecord> {
+    const updated = this.db.transaction(() => {
+      const room = this.loadRoom(roomId);
+      const phase = room.status;
+      if (phase !== 'blind' && phase !== 'flop' && phase !== 'turn') {
+        throw new RoomServiceError(400, 'Round is not accepting trades');
+      }
+
+      const quote = room.gameState?.quotes?.find((q) => q.id === quoteId);
+      if (!quote) {
+        throw new RoomServiceError(404, 'Quote request not found');
+      }
+      if (quote.requesterId !== requesterId) {
+        throw new RoomServiceError(403, 'Only the requesting player can act on this quote');
+      }
+      if (quote.status !== 'quoted') {
+        throw new RoomServiceError(409, 'Quote is not open to hit or lift');
+      }
+      if (Date.now() >= quote.expiresAt) {
+        throw new RoomServiceError(400, 'Quote request expired');
+      }
+      if (quote.bidPrice === undefined || quote.askPrice === undefined) {
+        throw new RoomServiceError(400, 'Quote has no price');
+      }
+
+      const requester = room.players.find((p) => p.id === requesterId);
+      if (!requester) {
+        throw new RoomServiceError(404, 'Player not found in room');
+      }
+      const target = room.players.find((p) => p.id === quote.targetId);
+      if (!target) {
+        throw new RoomServiceError(404, 'Counterparty is no longer in the room');
+      }
+
+      // Margin check both sides at qty 1: "hit" the bid = requester sells (ask-shaped
+      // exposure) and target buys (bid-shaped); "lift" the ask is the mirror.
+      const price = side === 'hit' ? quote.bidPrice : quote.askPrice;
+      const requesterSide: 'bid' | 'ask' = side === 'hit' ? 'ask' : 'bid';
+      const targetSide: 'bid' | 'ask' = side === 'hit' ? 'bid' : 'ask';
+      const orders = room.gameState?.orders ?? [];
+      assertMargin(requester, orders, requesterSide, price, 1);
+      assertMargin(target, orders, targetSide, price, 1);
+
+      const { gameState } = gameEngine.recordQuoteTrade(room, quoteId, side);
+      const updatedRoom: RoomRecord = { ...room, gameState, updatedAt: Date.now() };
+      this.persistRoom(updatedRoom);
+      return updatedRoom;
+    })();
+
+    emitGameEvent('quote_fill', roomId, updated.roundNumber, { quoteId, requesterId, side });
+    emitRoomUpdated(updated);
+    return updated;
+  }
+
+  async hitQuote(roomId: string, requesterId: string, quoteId: string): Promise<RoomRecord> {
+    return this.resolveQuote(roomId, requesterId, quoteId, 'hit');
+  }
+
+  async liftQuote(roomId: string, requesterId: string, quoteId: string): Promise<RoomRecord> {
+    return this.resolveQuote(roomId, requesterId, quoteId, 'lift');
+  }
+
+  // ---------------------------------------------------------------------------
   // Game lifecycle
   // ---------------------------------------------------------------------------
 
