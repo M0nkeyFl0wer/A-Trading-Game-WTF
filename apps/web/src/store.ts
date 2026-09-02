@@ -6,7 +6,9 @@ import { voiceService } from './lib/elevenlabs';
 export interface Commentary {
   text: string;
   priority: 'low' | 'medium' | 'high';
-  character: 'DEALER';
+  // Who said it. The Dealer narrates game events; the trading bots contribute
+  // their own banter, and each is spoken in that character's voice.
+  character: CharacterType;
 }
 
 export type GamePhase = 'idle' | 'waiting' | 'starting' | 'playing' | 'finished';

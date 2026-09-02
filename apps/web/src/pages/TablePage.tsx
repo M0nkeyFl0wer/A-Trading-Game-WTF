@@ -21,7 +21,7 @@ import { useGameStore } from '../store';
 import type { Commentary } from '../store';
 import { useRoomState } from '../hooks/useRoomState';
 import { useAuth } from '../contexts/AuthContext';
-import { voiceService } from '../lib/elevenlabs';
+import { voiceService, CHARACTER_PERSONALITIES } from '../lib/elevenlabs';
 import { authHeaders } from '../lib/devIdentity';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
@@ -63,7 +63,9 @@ export default function TablePage() {
     }
   }, [matchedTrades, playCharacterReaction]);
 
-  // Speak the highest-priority commentary line from the Dealer
+  // Speak the highest-priority commentary line, in the voice of whoever said it.
+  // The Dealer's event narration is high/medium priority and so still leads;
+  // bot banter is low priority and only surfaces when the Dealer has nothing.
   const commentary = useGameStore((state) => state.commentary);
   const lastSpokenRef = useRef('');
   useEffect(() => {
@@ -75,7 +77,11 @@ export default function TablePage() {
     const best = sorted[0];
     if (!best || best.text === lastSpokenRef.current) return;
     lastSpokenRef.current = best.text;
-    voiceService.playSpeech(best.text).catch((err) => {
+    // Fall back to the Dealer if a line ever arrives with an unknown character,
+    // so a bad payload goes quiet-but-correct rather than throwing.
+    const speaker =
+      CHARACTER_PERSONALITIES[best.character] ?? CHARACTER_PERSONALITIES.DEALER;
+    voiceService.playSpeech(best.text, speaker.voice, speaker.voiceStyle).catch((err) => {
       console.error('Commentary voice error:', err);
     });
   }, [commentary, voiceEnabled]);

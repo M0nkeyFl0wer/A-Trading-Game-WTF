@@ -7,10 +7,12 @@ import type { MatchedTrade } from '@trading-game/shared';
 // Commentary types
 // ---------------------------------------------------------------------------
 
+export type CommentaryCharacter = 'DEALER' | 'BULL' | 'BEAR' | 'WHALE' | 'ROOKIE';
+
 export interface Commentary {
   text: string;
   priority: 'low' | 'medium' | 'high';
-  character: 'DEALER';
+  character: CommentaryCharacter;
 }
 
 // ---------------------------------------------------------------------------
@@ -27,6 +29,33 @@ class CommentatorService {
     roundNumber: number;
     matchedTradeCount: number;
   }>();
+
+  /**
+   * Lines the trading bots wanted to say, waiting for the next room update to
+   * carry them to the clients. The floor coordinator ticks on its own timer,
+   * independently of room events, so it drops its commentary here rather than
+   * emitting directly. Keyed by room ID.
+   *
+   * The coordinator already throttles itself (commentaryThrottleMs), but we cap
+   * the queue anyway so a stalled room can never accumulate lines without bound.
+   */
+  private pendingAgentCommentary = new Map<string, Commentary[]>();
+
+  private static readonly MAX_PENDING_AGENT_LINES = 3;
+
+  /**
+   * Queue a line spoken by one of the bot personalities. Called by the floor
+   * coordinator when an agent's activate() returns commentary.
+   */
+  pushAgentCommentary(roomId: string, character: CommentaryCharacter, text: string): void {
+    const queue = this.pendingAgentCommentary.get(roomId) ?? [];
+    queue.push({ text, priority: 'low', character });
+    // Keep only the most recent lines -- stale banter is worse than silence.
+    this.pendingAgentCommentary.set(
+      roomId,
+      queue.slice(-CommentatorService.MAX_PENDING_AGENT_LINES),
+    );
+  }
 
   /**
    * Generate commentary based on room state changes.
@@ -118,6 +147,13 @@ class CommentatorService {
       }
     }
 
+    // Drain whatever the bots wanted to say since the last room update.
+    const agentLines = this.pendingAgentCommentary.get(room.id);
+    if (agentLines?.length) {
+      comments.push(...agentLines);
+      this.pendingAgentCommentary.delete(room.id);
+    }
+
     return comments;
   }
 
@@ -126,6 +162,7 @@ class CommentatorService {
    */
   removeRoom(roomId: string): void {
     this.previousStates.delete(roomId);
+    this.pendingAgentCommentary.delete(roomId);
   }
 }
 

@@ -3,6 +3,7 @@ import type { RoomRecord, RoomPlayer } from '../services/roomService';
 import type { TradingPhase } from '@trading-game/shared';
 import { roomService, RoomServiceError } from '../services/roomService';
 import { knowledgeGraph } from '../services/knowledgeGraph';
+import { commentatorService, type CommentaryCharacter } from '../services/commentatorService';
 import { logger } from '../lib/logger';
 
 // ---------------------------------------------------------------------------
@@ -173,23 +174,31 @@ export class FloorCoordinator {
     // Execute up to maxActionsPerTick agents this tick
     const actors = candidates.slice(0, this.config.maxActionsPerTick);
 
-    for (const actor of actors) {
-      await this.executeAgentActions(roomId, actor.agent, actor.player, actor.response);
-      this.recentActors.set(actor.agent.id, Date.now());
-    }
-
-    // Handle commentary from the highest-activation agent that has something to say
+    // Queue commentary from the highest-activation agent that has something to
+    // say. This runs BEFORE the actions below on purpose: the orders those
+    // actions submit are what fire room:updated, and that event is what drains
+    // the queue out to the clients. Queue first and the line rides along with
+    // the very update its speaker caused, instead of waiting a tick.
     const topCommentary = actors.find(a => a.response.commentary);
     if (topCommentary?.response.commentary) {
       const now = Date.now();
       if (now - this.lastCommentary > this.config.commentaryThrottleMs) {
         this.lastCommentary = now;
-        // Commentary is logged and can be picked up by commentator service via room events
+        commentatorService.pushAgentCommentary(
+          roomId,
+          topCommentary.agent.character as CommentaryCharacter,
+          topCommentary.response.commentary,
+        );
         logger.debug(
           { agent: topCommentary.agent.name, text: topCommentary.response.commentary },
           'agent commentary',
         );
       }
+    }
+
+    for (const actor of actors) {
+      await this.executeAgentActions(roomId, actor.agent, actor.player, actor.response);
+      this.recentActors.set(actor.agent.id, Date.now());
     }
 
     // Record order-book patterns for every agent that responded this tick.
