@@ -1,4 +1,8 @@
 import type { TradingAgent, AgentContext, AgentResponse, AgentConfig, AgentActionType } from './types';
+// Fair value now lives in @trading-game/shared so the server and the web client
+// price against ONE function (issue #24). Re-exported below to keep this
+// module's existing import site (botService) working unchanged.
+import { estimateFairValue } from '@trading-game/shared';
 
 // ---------------------------------------------------------------------------
 // Default configs per personality
@@ -85,23 +89,95 @@ const DEALER_COMMENTS = [
 ];
 
 // ---------------------------------------------------------------------------
-// Fair value estimation -- shared by the tick-loop activate() below and the
-// quote-request auto-responder (botService.respondToQuote), so the two call
-// sites can't drift onto different numbers for the same hidden information.
+// Fair value estimation -- moved into @trading-game/shared (issue #24) so the
+// bot pricing here and the number the human sees on the web client can never
+// drift onto different constants. Re-exported so botService's existing
+// `import { estimateFairValue } from '../agents/personalities'` keeps working.
 // ---------------------------------------------------------------------------
 
-const DECK_SUM = 130;
-const DECK_SIZE = 17;
+export { estimateFairValue };
 
-export function estimateFairValue(
-  myCard: number,
-  revealedCommunityCards: number[],
-  playerCount: number,
+// ---------------------------------------------------------------------------
+// Bluff model (issue #27)
+//
+// A bot that quotes `fairValue ± jitter` is honest -- a sharp player just picks
+// off the jitter and a casual player has nothing to read. Instead each
+// character quotes AWAY from its true fair value by a personality-shaped bluff,
+// modulated by the room's consensus signal (issue #23):
+//
+//   - BULL  talks it up   -> quotes above fair, and leans harder into a rising
+//                            crowd (momentum).
+//   - BEAR  talks it down -> quotes below fair, leans harder into a falling
+//                            crowd.
+//   - WHALE quotes to move you -> ignores its own fair value and prints a LOUD
+//                            two-way well beyond consensus, dragging the crowd
+//                            (the EWMA follows the print). Amplifies whichever
+//                            way the room is already drifting.
+//   - ROOKIE is honest-but-sloppy: no directional bias, just a wide, noisy mid.
+//   - DEALER is the closest to a fair market maker: a whisper of noise.
+//
+// It stays BEATABLE and LEGIBLE on purpose: the bias is a fixed, learnable
+// number per character, so a player who watches can fade the Bull and follow
+// the Whale. The randomness only stops it being pixel-perfect predictable.
+// ---------------------------------------------------------------------------
+
+export interface BluffProfile {
+  /** Directional skew off the bot's TRUE fair value, in points. +up / -down. */
+  deception: number;
+  /** How hard it leans on the crowd: multiplies (consensus - fair). */
+  consensusPush: number;
+  /** Full width of the uniform noise added to the mid, in points. */
+  noise: number;
+  /** Whale-style manipulation: quote relative to consensus, not fair value. */
+  movesTheCrowd?: boolean;
+}
+
+export const BLUFF_PROFILES: Record<string, BluffProfile> = {
+  BULL:   { deception:  6, consensusPush: 0.3, noise: 3 },
+  BEAR:   { deception: -6, consensusPush: 0.3, noise: 3 },
+  WHALE:  { deception:  0, consensusPush: 0,   noise: 3, movesTheCrowd: true },
+  ROOKIE: { deception:  0, consensusPush: 0,   noise: 8 },
+  DEALER: { deception:  0, consensusPush: 0,   noise: 2 },
+};
+
+// A whale's "loud" quote sits this many points beyond consensus, in whichever
+// direction the crowd is already leaning -- enough to visibly drag the EWMA.
+const WHALE_LOUDNESS = 12;
+
+/**
+ * Compute the mid a bot QUOTES, given its true fair value and the room's
+ * consensus. Deterministic apart from the injected rng (defaults to
+ * Math.random), which makes it unit-testable.
+ *
+ * @param character  the bot's personality key
+ * @param fairValue  the bot's own honest fair value (from estimateFairValue)
+ * @param consensus  the room's current market belief, or undefined pre-seed
+ * @param rng        () => number in [0,1); injectable for tests
+ */
+export function bluffedQuoteMid(
+  character: string,
+  fairValue: number,
+  consensus: number | undefined,
+  rng: () => number = Math.random,
 ): number {
-  const knownTotal = myCard + revealedCommunityCards.reduce((s, c) => s + c, 0);
-  const unknownCount = (playerCount - 1) + (3 - revealedCommunityCards.length);
-  const deckMean = DECK_SUM / DECK_SIZE;
-  return knownTotal + unknownCount * deckMean;
+  const p = BLUFF_PROFILES[character] ?? BLUFF_PROFILES.ROOKIE;
+  const noise = (rng() - 0.5) * p.noise;
+
+  if (p.movesTheCrowd) {
+    // The whale quotes to MOVE the room, not to reveal what it knows. It steps
+    // loudly beyond consensus in the direction the crowd is already drifting
+    // (relative to a neutral anchor of the whale's own fair value); if the room
+    // is flat it pumps upward. The far-from-consensus mid drags the EWMA.
+    const anchor = consensus ?? fairValue;
+    const lean = anchor - fairValue;
+    const dir = lean > 0.5 ? 1 : lean < -0.5 ? -1 : 1;
+    return anchor + dir * WHALE_LOUDNESS + noise;
+  }
+
+  // Bull/Bear/Rookie/Dealer: bias off fair value, then lean into the crowd's
+  // deviation from fair (momentum). consensusPush is 0 for the honest ones.
+  const crowdLean = consensus === undefined ? 0 : p.consensusPush * (consensus - fairValue);
+  return fairValue + p.deception + crowdLean + noise;
 }
 
 // ---------------------------------------------------------------------------

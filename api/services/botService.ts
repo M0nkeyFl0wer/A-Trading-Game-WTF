@@ -3,7 +3,7 @@ import { roomService, RoomServiceError, type RoomRecord, type RoomPlayer } from 
 import { roomEvents } from '../lib/roomEvents';
 import { gameEvents, type GameEvent } from '../lib/gameEvents';
 import { FloorCoordinator } from '../agents/floorCoordinator';
-import { createPersonalityAgent, estimateFairValue, PERSONALITY_CONFIGS } from '../agents/personalities';
+import { createPersonalityAgent, estimateFairValue, bluffedQuoteMid } from '../agents/personalities';
 
 // A targeted quote request deserves a faster answer than the passive 3s tick
 // loop that drives ordinary order-book flow.
@@ -138,10 +138,14 @@ class BotService {
     const botCard = gs.playerCards.find((c) => c.id === botId);
     if (!bot || !botCard) return;
 
+    // The bot knows its OWN honest fair value...
     const fairValue = estimateFairValue(botCard.value, gs.revealedCommunityCards, room.players.length);
-    const config = PERSONALITY_CONFIGS[bot.character] ?? PERSONALITY_CONFIGS.ROOKIE;
-    const jitter = (Math.random() - 0.5) * (config.spreadWidth / 2);
-    const mid = Math.round(fairValue + jitter);
+    // ...but it does NOT quote it. It bluffs per personality, leaning on the
+    // room's consensus (issue #27): the Bull talks it up, the Bear down, the
+    // Whale quotes loud to drag the crowd. The mid is deliberately biased away
+    // from fairValue in a fixed, learnable direction so a sharp player can read
+    // and fade it.
+    const mid = Math.round(bluffedQuoteMid(bot.character, fairValue, gs.consensus));
 
     await roomService.respondToQuote(roomId, botId, quoteId, mid - 1, mid + 1);
   }
