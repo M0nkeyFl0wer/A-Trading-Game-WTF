@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import type { Order, MatchedTrade, TradingPhase } from '@trading-game/shared';
+import type { Order, MatchedTrade, QuoteRequest, TradingPhase } from '@trading-game/shared';
 import { sanitizeInput } from '../lib/security';
 import { authHeaders } from '../lib/devIdentity';
 import { useAuth } from '../contexts/AuthContext';
@@ -141,6 +141,7 @@ export function useRoomState(roomId?: string) {
   const setMyCard = useGameStore((state) => state.setMyCard);
   const setSettlement = useGameStore((state) => state.setSettlement);
   const setCommentary = useGameStore((state) => state.setCommentary);
+  const setQuotes = useGameStore((state) => state.setQuotes);
 
   const updateRoomState = useCallback((payload: any) => {
     const normalized = normalizeRoom(payload);
@@ -170,6 +171,9 @@ export function useRoomState(roomId?: string) {
       }
       if (Array.isArray(gs.revealedCommunityCards)) {
         setRevealedCommunityCards(gs.revealedCommunityCards as number[]);
+      }
+      if (Array.isArray(gs.quotes)) {
+        setQuotes(gs.quotes as QuoteRequest[]);
       }
 
       // Merge card values from gameState.playerCards into player states
@@ -223,7 +227,7 @@ export function useRoomState(roomId?: string) {
   }, [
     currentUser, setPlayers, setGamePhase, setRoundNumber, setTradingPhase,
     setOrders, setMatchedTrades, setRevealedCommunityCards, setPhaseEndsAt,
-    setMyCard, setSettlement, setCommentary,
+    setMyCard, setSettlement, setCommentary, setQuotes,
   ]);
 
   useEffect(() => {

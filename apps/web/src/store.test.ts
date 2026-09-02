@@ -106,6 +106,28 @@ describe('game store state', () => {
     expect(state.revealedCommunityCards).toHaveLength(0);
   });
 
+  test('setQuotes updates quote state and resetGame clears it', () => {
+    const { setQuotes, resetGame } = useGameStore.getState();
+
+    setQuotes([{
+      id: 'q1',
+      requesterId: 'p1',
+      requesterName: 'Alice',
+      targetId: 'p2',
+      targetName: 'Bob',
+      status: 'quoted',
+      bidPrice: 60,
+      askPrice: 62,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 20_000,
+    }]);
+    expect(useGameStore.getState().quotes).toHaveLength(1);
+    expect(useGameStore.getState().quotes[0]).toMatchObject({ bidPrice: 60, askPrice: 62 });
+
+    resetGame();
+    expect(useGameStore.getState().quotes).toHaveLength(0);
+  });
+
   test('voice controls toggle enabled flag and clamp volume', () => {
     const { setVoiceEnabled, setVolume } = useGameStore.getState();
     setVoiceEnabled(false);
