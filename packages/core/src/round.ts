@@ -1,8 +1,8 @@
-import { randomInt } from 'crypto';
 import type { DeckValue } from '@trading-game/shared';
 import type { Card, Table } from './types';
 import { OrderBook } from './orderBook';
 import type { Order, MatchedTrade, OrderBookSnapshot } from './orderBook';
+import { cryptoRng, type Rng } from './rng';
 
 export type RoundPhase = 'deal' | 'blind' | 'flop' | 'turn' | 'settlement' | 'settled';
 
@@ -17,7 +17,28 @@ const NEXT_PHASE: Partial<Record<RoundPhase, RoundPhase>> = {
 };
 
 export interface RoundOptions {
-  /** Reserved for future use (timer durations, etc.) */
+  /**
+   * Random source used to shuffle the deck in {@link Round.deal}.
+   *
+   * Defaults to the cryptographically-secure {@link cryptoRng}, so live play is
+   * unpredictable and unchanged. Inject a {@link SeededRng} instead to make a
+   * round reproducible from a seed — that is what powers replay, tournaments and
+   * the Debrief (issue #26).
+   */
+  rng?: Rng;
+
+  /**
+   * Monotonic clock used to timestamp submitted orders. Order timestamps drive
+   * the matching engine's price-time priority AND its execution-price choice
+   * (the resting, i.e. earlier, order sets the price). Under `Date.now()` two
+   * orders placed in the same millisecond tie, and the tie resolves
+   * non-deterministically — fine for live play, fatal for replay.
+   *
+   * Defaults to `Date.now` (live behaviour unchanged). Sim/replay injects a
+   * strictly-increasing counter so every order gets a distinct, reproducible
+   * timestamp and matching becomes deterministic (issue #26).
+   */
+  clock?: () => number;
 }
 
 export class Round {
@@ -71,10 +92,14 @@ export class Round {
       throw new Error(`Cannot deal in phase "${this.phase}"`);
     }
 
-    // Fisher-Yates shuffle (cryptographically secure)
+    // Fisher-Yates shuffle. The randomness comes from the injected RNG so the
+    // exact same shuffle can be reproduced under a seed (sim/replay) while live
+    // play keeps using the crypto default. `nextInt(i + 1)` yields a swap index
+    // in [0, i], identical to the previous `randomInt(0, i + 1)`.
+    const rng = this.opts.rng ?? cryptoRng;
     const d = this.deck;
     for (let i = d.length - 1; i > 0; i--) {
-      const j = randomInt(0, i + 1);
+      const j = rng.nextInt(i + 1);
       [d[i], d[j]] = [d[j], d[i]];
     }
 
@@ -138,7 +163,9 @@ export class Round {
       side: order.side,
       price: order.price,
       quantity: order.quantity,
-      timestamp: Date.now(),
+      // Use the injected clock so sim/replay gets deterministic, monotonic
+      // timestamps; live play falls back to the wall clock.
+      timestamp: (this.opts.clock ?? Date.now)(),
       phase: this.phase as 'blind' | 'flop' | 'turn',
     });
 
