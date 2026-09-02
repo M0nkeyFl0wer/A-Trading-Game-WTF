@@ -24,7 +24,62 @@ export const DEFAULT_TABLE_CONFIG: TableConfig = {
   houseFee: 0.01,
 };
 
+// ---------------------------------------------------------------------------
+// Fair-value estimation (issue #24)
+//
+// The round settles on the SUM of every dealt card: one card per player plus
+// three community cards. A player only ever knows their own card and whichever
+// community cards have been revealed so far; every other card is an unknown
+// drawn from the deck. The fair value of the total is therefore:
+//
+//     (cards I can see) + (cards I can't) * (deck mean)
+//
+// Both the server (bot pricing) and the web client (the number shown to the
+// human) import THIS one function so the player is never anchored to a
+// different fair value than the bots price against. See issue #24.
+// ---------------------------------------------------------------------------
+
+// Derive the deck statistics from DEFAULT_DECK so there is a single source of
+// truth. For the shipped deck this is sum = 130 over 17 cards → mean ≈ 7.647.
+const DECK_SUM = DEFAULT_DECK.reduce((sum, card) => sum + card, 0);
+const DECK_SIZE = DEFAULT_DECK.length;
+export const DECK_MEAN = DECK_SUM / DECK_SIZE;
+
+// Every round deals exactly three community cards, regardless of table size.
+export const COMMUNITY_CARD_COUNT = 3;
+
 /**
+ * Estimate the fair value of the round's settlement total from one player's
+ * point of view.
+ *
+ * @param myCard                 the value of the caller's own hole card
+ * @param revealedCommunityCards community cards visible in the current phase
+ * @param playerCount            how many players (incl. bots) are at the table
+ *
+ * The known portion is the caller's card plus the revealed community cards.
+ * The unknown portion is every other player's hidden card ((playerCount - 1)
+ * of them) plus the community cards not yet turned over. Each unknown card is
+ * valued at the deck mean.
+ */
+export function estimateFairValue(
+  myCard: number,
+  revealedCommunityCards: number[],
+  playerCount: number,
+): number {
+  const knownTotal = myCard + revealedCommunityCards.reduce((s, c) => s + c, 0);
+  const unknownCount =
+    (playerCount - 1) + (COMMUNITY_CARD_COUNT - revealedCommunityCards.length);
+  return knownTotal + unknownCount * DECK_MEAN;
+}
+
+/**
+ * @deprecated Use {@link estimateFairValue} instead. This function is wrong on
+ * two counts: it double-counts the caller's own card (61.2 already includes an
+ * average for every seat, then `cardDelta` adds the real card on top) and it
+ * hard-codes the 5-player / 8-card table, ignoring the actual player count and
+ * revealed community cards. Kept only so nothing breaks mid-migration (#24);
+ * remove once no call sites remain.
+ *
  * Compute the expected value of the sum of all 8 dealt cards.
  * Deck values: -10,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,20  (17 cards, sum = 130)
  * With 8 cards drawn from 17, EV(total) = 130 * (8/17) ≈ 61.2
