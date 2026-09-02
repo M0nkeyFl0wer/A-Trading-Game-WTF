@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomInt } from 'crypto';
+import { createHash, randomBytes, randomInt, randomUUID } from 'crypto';
 import { OrderBook } from '@trading-game/core';
 import {
   DEFAULT_DECK,
@@ -9,6 +9,7 @@ import type {
   Order,
   MatchedTrade,
   DeckValue,
+  QuoteRequest,
 } from '@trading-game/shared';
 import type { RoomPlayer, RoomRecord } from './roomService';
 import { logger } from '../lib/logger';
@@ -36,6 +37,8 @@ export interface RoomGameState {
   revealedCommunityCards: number[];
   orders: Order[];
   matchedTrades: MatchedTrade[];
+  /** Two-way quote requests (ask a named player for a price). Absent on rooms dealt before this field existed. */
+  quotes?: QuoteRequest[];
   playerCards: Array<{ id: string; value: number; revealed: boolean }>;
   /** Unix-ms timestamp when current phase timer expires. */
   phaseEndsAt: number;
@@ -96,6 +99,16 @@ function revealedCardsForPhase(
   const config = PHASE_SEQUENCE.find((p) => p.phase === phase);
   if (!config) return [];
   return communityCards.slice(0, config.communityCardsRevealed);
+}
+
+/** A quote never survives a phase transition — a priced quote is stale the instant a new community card is revealed. */
+const QUOTE_TTL_MS = 20_000;
+
+function expireOpenQuotes(quotes: QuoteRequest[] | undefined): QuoteRequest[] | undefined {
+  if (!quotes || quotes.length === 0) return quotes;
+  return quotes.map((q) =>
+    q.status === 'pending' || q.status === 'quoted' ? { ...q, status: 'expired' as const } : q,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -160,6 +173,7 @@ export class GameEngine {
       revealedCommunityCards: revealedCardsForPhase(communityCards, 'blind'),
       orders: [],
       matchedTrades: [],
+      quotes: [],
       playerCards,
       phaseEndsAt: now + blindConfig.durationMs,
       updatedAt: now,
@@ -215,6 +229,7 @@ export class GameEngine {
       phaseEndsAt: now + nextConfig.durationMs,
       updatedAt: now,
       revealedNonces,
+      quotes: expireOpenQuotes(gs.quotes),
     };
 
     logger.info(
@@ -293,6 +308,138 @@ export class GameEngine {
   }
 
   /**
+   * Request a two-way quote from another named player. Returns updated
+   * gameState with a new 'pending' QuoteRequest appended. Caller is
+   * responsible for validating phase/players/the one-active-quote invariant
+   * before calling, same as submitOrder's margin checks.
+   */
+  requestQuote(
+    room: RoomRecord,
+    requesterId: string,
+    requesterName: string,
+    targetId: string,
+    targetName: string,
+  ): RoomGameState {
+    const gs = room.gameState;
+    if (!gs) throw new Error('no active game state');
+
+    const now = Date.now();
+    const quote: QuoteRequest = {
+      id: randomUUID(),
+      requesterId,
+      requesterName,
+      targetId,
+      targetName,
+      status: 'pending',
+      createdAt: now,
+      expiresAt: Math.min(now + QUOTE_TTL_MS, gs.phaseEndsAt),
+    };
+
+    return {
+      ...gs,
+      quotes: [...(gs.quotes ?? []), quote],
+      updatedAt: now,
+    };
+  }
+
+  /**
+   * Respond to a pending quote request with a two-way price. bid/ask must
+   * be exactly 2 points apart (the game's fixed spread).
+   */
+  respondToQuote(
+    room: RoomRecord,
+    quoteId: string,
+    bidPrice: number,
+    askPrice: number,
+  ): RoomGameState {
+    const gs = room.gameState;
+    if (!gs) throw new Error('no active game state');
+
+    if (askPrice - bidPrice !== 2) {
+      throw new Error('quote must be exactly 2 points wide');
+    }
+
+    const now = Date.now();
+    const quote = gs.quotes?.find((q) => q.id === quoteId);
+    if (!quote) throw new Error('quote not found');
+    if (quote.status !== 'pending') throw new Error('quote is not pending');
+    if (now >= quote.expiresAt) throw new Error('quote request expired');
+
+    const updatedQuote: QuoteRequest = {
+      ...quote,
+      status: 'quoted',
+      bidPrice,
+      askPrice,
+      respondedAt: now,
+    };
+
+    return {
+      ...gs,
+      quotes: (gs.quotes ?? []).map((q) => (q.id === quoteId ? updatedQuote : q)),
+      updatedAt: now,
+    };
+  }
+
+  /**
+   * Resolve a quoted request: the requester hits the bid (sells to the
+   * target) or lifts the ask (buys from the target). Materializes a
+   * synthetic MatchedTrade fed into the exact same settlement math as an
+   * order-book fill -- settleRound doesn't distinguish trade origin.
+   */
+  recordQuoteTrade(
+    room: RoomRecord,
+    quoteId: string,
+    side: 'hit' | 'lift',
+  ): { gameState: RoomGameState; trade: MatchedTrade } {
+    const gs = room.gameState;
+    if (!gs) throw new Error('no active game state');
+
+    const now = Date.now();
+    const quote = gs.quotes?.find((q) => q.id === quoteId);
+    if (!quote) throw new Error('quote not found');
+    if (quote.status !== 'quoted') throw new Error('quote is not open to hit or lift');
+    if (now >= quote.expiresAt) throw new Error('quote request expired');
+    if (quote.bidPrice === undefined || quote.askPrice === undefined) {
+      throw new Error('quote has no price');
+    }
+
+    const price = side === 'hit' ? quote.bidPrice : quote.askPrice;
+    const tradeId = randomUUID();
+
+    // "hit" the bid: requester sells to the target at bidPrice.
+    // "lift" the ask: requester buys from the target at askPrice.
+    const trade: MatchedTrade = {
+      id: tradeId,
+      buyerId: side === 'hit' ? quote.targetId : quote.requesterId,
+      buyerName: side === 'hit' ? quote.targetName : quote.requesterName,
+      sellerId: side === 'hit' ? quote.requesterId : quote.targetId,
+      sellerName: side === 'hit' ? quote.requesterName : quote.targetName,
+      price,
+      quantity: 1,
+      buyOrderId: `quote_${quote.id}_buy`,
+      sellOrderId: `quote_${quote.id}_sell`,
+      phase: gs.phase as TradingPhase,
+      timestamp: now,
+    };
+
+    const resolvedQuote: QuoteRequest = {
+      ...quote,
+      status: 'accepted',
+      resolvedAt: now,
+      resolution: { side, price, tradeId },
+    };
+
+    const gameState: RoomGameState = {
+      ...gs,
+      quotes: (gs.quotes ?? []).map((q) => (q.id === quoteId ? resolvedQuote : q)),
+      matchedTrades: [...gs.matchedTrades, trade],
+      updatedAt: now,
+    };
+
+    return { gameState, trade };
+  }
+
+  /**
    * Settle the round: compute the total of all 8 cards, then PnL for
    * every player based on their matched trades (CFD-style).
    *
@@ -355,6 +502,7 @@ export class GameEngine {
       // Reveal all nonces and shuffle seed so anyone can verify the deal
       revealedNonces: gs.allNonces ?? [],
       shuffleSeed: gs.shuffleSeed,
+      quotes: expireOpenQuotes(gs.quotes),
     };
 
     logger.info(

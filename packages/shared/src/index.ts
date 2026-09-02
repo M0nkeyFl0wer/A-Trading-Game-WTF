@@ -139,6 +139,30 @@ export interface OrderBookSnapshot {
   asks: Order[];   // sorted by price ascending (best ask first)
 }
 
+// ============================================================================
+// Two-Way Quote Requests (ask a named player for a price)
+// ============================================================================
+
+export type QuoteStatus = 'pending' | 'quoted' | 'accepted' | 'expired';
+
+export interface QuoteRequest {
+  id: string;
+  requesterId: string;
+  requesterName: string;
+  targetId: string;
+  targetName: string;
+  status: QuoteStatus;
+  /** Set once the target responds. Always exactly 2 apart from askPrice. */
+  bidPrice?: number;
+  askPrice?: number;
+  createdAt: number;
+  /** Unix-ms deadline; never later than the phase's own end. */
+  expiresAt: number;
+  respondedAt?: number;
+  resolvedAt?: number;
+  resolution?: { side: 'hit' | 'lift'; price: number; tradeId: string };
+}
+
 export interface PhaseConfig {
   phase: TradingPhase;
   durationMs: number;

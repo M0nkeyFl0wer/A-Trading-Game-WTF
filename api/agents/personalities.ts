@@ -85,6 +85,26 @@ const DEALER_COMMENTS = [
 ];
 
 // ---------------------------------------------------------------------------
+// Fair value estimation -- shared by the tick-loop activate() below and the
+// quote-request auto-responder (botService.respondToQuote), so the two call
+// sites can't drift onto different numbers for the same hidden information.
+// ---------------------------------------------------------------------------
+
+const DECK_SUM = 130;
+const DECK_SIZE = 17;
+
+export function estimateFairValue(
+  myCard: number,
+  revealedCommunityCards: number[],
+  playerCount: number,
+): number {
+  const knownTotal = myCard + revealedCommunityCards.reduce((s, c) => s + c, 0);
+  const unknownCount = (playerCount - 1) + (3 - revealedCommunityCards.length);
+  const deckMean = DECK_SUM / DECK_SIZE;
+  return knownTotal + unknownCount * deckMean;
+}
+
+// ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
@@ -105,10 +125,11 @@ export function createPersonalityAgent(
 
     activate(context: AgentContext): AgentResponse {
       // 1. Estimate fair value
-      const knownTotal = context.myCard + context.revealedCommunityCards.reduce((s, c) => s + c, 0);
-      const unknownCount = (context.playerCount - 1) + (3 - context.revealedCommunityCards.length);
-      const deckMean = 130 / 17;
-      const fairValue = knownTotal + unknownCount * deckMean;
+      const fairValue = estimateFairValue(
+        context.myCard,
+        context.revealedCommunityCards,
+        context.playerCount,
+      );
 
       // 2. Calculate activation based on:
       //    - EV delta from market (bigger delta = higher activation)
