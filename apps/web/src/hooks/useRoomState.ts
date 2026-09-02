@@ -234,6 +234,50 @@ export function useRoomState(roomId?: string) {
     setMyCard, setConsensus, setSettlement, setCommentary, setQuotes,
   ]);
 
+  /**
+   * Fetch the authoritative room snapshot over HTTP and push it into the store.
+   *
+   * This is the heart of refresh/reconnect recovery (issue #47): GET
+   * /api/room/:id returns the current phase, the player's own card, the order
+   * book, and any open quotes -- everything the floor UI needs to render the
+   * exact table the player was looking at before the page reloaded. It carries
+   * the dev-identity token via `authHeaders`, so the same `dev:<uid>` seat is
+   * restored (an X-Dev-User-Id header, never a Bearer -- see lib/devIdentity).
+   *
+   * Shared by two callers so refresh AND a mid-round socket reconnect run the
+   * same recovery:
+   *   - the mount effect below (initial load; passes an AbortSignal so an
+   *     unmount mid-flight can't write stale state),
+   *   - the socket effect's reconnect handler (passes `silent` so a background
+   *     catch-up doesn't blank the table by flipping status back to 'loading').
+   */
+  const refetchRoom = useCallback(
+    async (opts: { signal?: AbortSignal; silent?: boolean } = {}) => {
+      if (!roomId) return;
+      if (!opts.silent) {
+        setStatus('loading');
+        setError(null);
+      }
+      const headers: Record<string, string> = currentUser
+        ? authHeaders(await currentUser.getIdToken())
+        : {};
+      const response = await fetch(buildRoomUrl(roomId), {
+        headers,
+        signal: opts.signal,
+      });
+      if (!response.ok) {
+        throw new Error(response.status === 404 ? 'Room not found' : 'Unable to load room');
+      }
+      const payload = await response.json();
+      // The fetch resolved after an unmount/roomId change: drop the result
+      // rather than writing it into a store that now belongs to another room.
+      if (opts.signal?.aborted) return;
+      updateRoomState(payload);
+      setStatus('ready');
+    },
+    [roomId, currentUser, updateRoomState],
+  );
+
   useEffect(() => {
     if (!roomId) {
       setRoom(null);
@@ -241,44 +285,20 @@ export function useRoomState(roomId?: string) {
     }
 
     const controller = new AbortController();
-    let cancelled = false;
 
-    const loadRoom = async () => {
-      setStatus('loading');
-      setError(null);
-      try {
-        const headers: Record<string, string> = currentUser
-          ? authHeaders(await currentUser.getIdToken())
-          : {};
-        const response = await fetch(buildRoomUrl(roomId), {
-          headers,
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          throw new Error(response.status === 404 ? 'Room not found' : 'Unable to load room');
-        }
-        const payload = await response.json();
-        if (!cancelled) {
-          updateRoomState(payload);
-          setStatus('ready');
-        }
-      } catch (err) {
-        if ((err as DOMException)?.name === 'AbortError' || cancelled) {
-          return;
-        }
-        console.error('Failed to load room', err);
-        setError(err instanceof Error ? err.message : 'Unable to load room');
-        setStatus('error');
+    refetchRoom({ signal: controller.signal }).catch((err) => {
+      if ((err as DOMException)?.name === 'AbortError' || controller.signal.aborted) {
+        return;
       }
-    };
-
-    loadRoom();
+      console.error('Failed to load room', err);
+      setError(err instanceof Error ? err.message : 'Unable to load room');
+      setStatus('error');
+    });
 
     return () => {
-      cancelled = true;
       controller.abort();
     };
-  }, [roomId, currentUser, updateRoomState]);
+  }, [roomId, refetchRoom]);
 
   useEffect(() => {
     if (!roomId || !currentUser) {
@@ -301,6 +321,31 @@ export function useRoomState(roomId?: string) {
         });
         socketRef.current = socket;
 
+        // Emit `join-room` on EVERY (re)connect, not just the first (issue #47).
+        // socket.io reconnects on its own after a network blip, a tunnel
+        // hiccup, or a laptop waking from sleep. Each reconnection is a BRAND
+        // NEW server-side socket that has joined no room, so the server won't
+        // deliver `rooms:update` to it until it hears `join-room` again. The
+        // old code emitted join-room once, imperatively, so after any reconnect
+        // the table would silently freeze while looking connected. `connect`
+        // fires on the initial connection and on every successful reconnection,
+        // which is exactly the hook we want for re-joining.
+        let hasConnectedBefore = false;
+        socket.on('connect', () => {
+          socket.emit('join-room', roomId);
+          // On a RE-connection (not the very first connect, which the mount
+          // effect's fetch already covered), pull the authoritative snapshot
+          // over HTTP so any phase/card/quote changes that happened while we
+          // were offline are restored -- the same recovery a full page refresh
+          // performs. `silent` keeps the visible table in place during catch-up.
+          if (hasConnectedBefore) {
+            refetchRoom({ silent: true }).catch((err) =>
+              console.warn('Reconnect refetch failed', err),
+            );
+          }
+          hasConnectedBefore = true;
+        });
+
         socket.on('rooms:update', (payload) => {
           if (payload?.id === roomId) {
             updateRoomState(payload);
@@ -313,8 +358,6 @@ export function useRoomState(roomId?: string) {
             setStatus('error');
           }
         });
-
-        socket.emit('join-room', roomId);
       } catch (err) {
         console.warn('Lobby socket connection failed', err);
       }
@@ -330,7 +373,7 @@ export function useRoomState(roomId?: string) {
         socketRef.current = null;
       }
     };
-  }, [roomId, currentUser, updateRoomState]);
+  }, [roomId, currentUser, updateRoomState, refetchRoom]);
 
   return { room, status, error };
 }
