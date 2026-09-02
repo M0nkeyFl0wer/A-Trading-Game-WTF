@@ -149,7 +149,11 @@ export const botLimiter = rateLimit({
 // Voice synthesis proxy limiter
 export const voiceLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 15,
+  // 60/min per user: a live round narrates the dealer plus up to five character
+  // bots, each line a separate /speak call, so 15/min throttled real gameplay to
+  // 429s (voice "did nothing"). Audio is cached server-side by (voice,style,text),
+  // so repeated lines cost one ElevenLabs call then serve from cache.
+  max: 60,
   message: {
     error: 'Voice rate limit exceeded.',
     retryAfter: 1
