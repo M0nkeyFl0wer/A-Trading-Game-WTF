@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { computeEV } from '@trading-game/shared';
 import OrderForm from '../ui/OrderForm';
 import OrderBookDisplay from '../ui/OrderBookDisplay';
@@ -9,8 +9,13 @@ import TradeTape from '../ui/TradeTape';
 import SeatAvatars from '../ui/SeatAvatars';
 import SettlementScreen from '../ui/SettlementScreen';
 import ConnectWalletButton from '../ui/ConnectWalletButton';
-import { WALLET_ENABLED } from '../lib/featureFlags';
+import { WALLET_ENABLED, TRADING_FLOOR_ENABLED } from '../lib/featureFlags';
 import VoiceControlsMini from '../ui/VoiceControlsMini';
+import PrintsTicker from '../ui/PrintsTicker';
+import TradingFloor from '../ui/TradingFloor';
+import QuoteRequestPanel from '../ui/QuoteRequestPanel';
+import QuoteRespondPrompt from '../ui/QuoteRespondPrompt';
+import TradeBlotter from '../ui/TradeBlotter';
 import { useGameVoice } from '../hooks/useGameVoice';
 import { useGameStore } from '../store';
 import type { Commentary } from '../store';
@@ -183,8 +188,41 @@ export default function TablePage() {
     }
   };
 
+  const hostControls: ReactNode = isHost ? (
+    <section className="card" aria-label="Host controls">
+      <div className="section-heading" style={{ marginBottom: 12 }}>
+        <h3>Host Controls</h3>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {!isTradingActive && tradingPhase !== 'finished' && (
+          <button
+            type="button"
+            className="button button--primary"
+            onClick={handleStartRound}
+            disabled={startingRound}
+            style={{ flex: 1 }}
+          >
+            {startingRound ? 'Launching...' : 'Start Round'}
+          </button>
+        )}
+        <button
+          type="button"
+          className="button button--neutral"
+          onClick={handleAddBot}
+          disabled={addingBot}
+          style={{ flex: 1 }}
+        >
+          {addingBot ? 'Adding...' : 'Add Bot'}
+        </button>
+      </div>
+    </section>
+  ) : null;
+
   return (
-    <main className="page" aria-labelledby="table-title">
+    <main
+      className={TRADING_FLOOR_ENABLED ? 'page trading-floor-theme' : 'page'}
+      aria-labelledby="table-title"
+    >
       {/* Settlement overlay */}
       <SettlementScreen />
 
@@ -239,6 +277,25 @@ export default function TablePage() {
             </div>
           </div>
         </div>
+      ) : TRADING_FLOOR_ENABLED ? (
+        // A plain block wrapper -- .floor relies on aspect-ratio sizing, which
+        // collapses if it's a direct child of .page's flex column layout.
+        <div>
+          <PrintsTicker />
+          <TradingFloor />
+
+          <div className="grid grid--sidebar" style={{ alignItems: 'start', marginTop: 16 }}>
+            <div className="grid" style={{ gap: 16 }}>
+              <QuoteRequestPanel roomId={id} disabled={!isTradingActive} />
+              <QuoteRespondPrompt roomId={id} />
+              {hostControls}
+            </div>
+            <aside className="grid" style={{ gap: 16 }} aria-label="Table info">
+              <TradeBlotter />
+              <VoiceControlsMini />
+            </aside>
+          </div>
+        </div>
       ) : (
         <>
           {/* YOUR CARD -- the biggest, most prominent element during trading */}
@@ -275,35 +332,7 @@ export default function TablePage() {
               />
 
               {/* Host controls */}
-              {isHost && (
-                <section className="card" aria-label="Host controls">
-                  <div className="section-heading" style={{ marginBottom: 12 }}>
-                    <h3>Host Controls</h3>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {!isTradingActive && tradingPhase !== 'finished' && (
-                      <button
-                        type="button"
-                        className="button button--primary"
-                        onClick={handleStartRound}
-                        disabled={startingRound}
-                        style={{ flex: 1 }}
-                      >
-                        {startingRound ? 'Launching...' : 'Start Round'}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="button button--neutral"
-                      onClick={handleAddBot}
-                      disabled={addingBot}
-                      style={{ flex: 1 }}
-                    >
-                      {addingBot ? 'Adding...' : 'Add Bot'}
-                    </button>
-                  </div>
-                </section>
-              )}
+              {hostControls}
             </div>
 
             {/* Right column: seats, trade tape, voice */}

@@ -696,6 +696,430 @@ a:focus-visible {
   border: none;
 }
 
+/* ---------------------------------------------------------------------------
+   THE TRADING FLOOR -- felt-table redesign, behind VITE_ENABLE_TRADING_FLOOR
+   (apps/web/src/lib/featureFlags.ts). Additive only: the :root palette above
+   is untouched, so a flag-off player sees zero visual change.
+
+   Re-themes the SAME custom properties every existing .card/.button/
+   .inline-notice already reads, so components built for the old layout
+   (OrderBookDisplay, host controls, VoiceControlsMini, the new quote panels)
+   restyle for free with no component changes. Bespoke pieces -- the felt
+   table, the prints ticker, the quote chips -- get their own classes below.
+   One committed dark look, no light-mode branch: colours are painted
+   explicitly so the page holds regardless of host theme, same as the
+   approved mockup this implements.
+--------------------------------------------------------------------------- */
+.trading-floor-theme {
+  --bg-primary: radial-gradient(120% 80% at 50% -10%, #2a2013 0%, #17130d 55%, #100c08 100%);
+  --surface: linear-gradient(180deg, #2c2419, #241d14);
+  --surface-alt: #1b1610;
+  --border-subtle: rgba(243, 234, 212, 0.14);
+  --text-primary: #f3ead4;
+  --text-secondary: #b6a98c;
+  --accent: #d0a54a;
+  --accent-strong: #d0a54a;
+  --success: #3fa08f;
+  --error: #c0505c;
+  --card-radius: 10px;
+  --font-family: 'Public Sans', system-ui, sans-serif;
+
+  --tf-surround: #17130d;
+  --tf-felt: #134d3a;
+  --tf-felt-hi: #1c6b50;
+  --tf-felt-lo: #0b3125;
+  --tf-stock: #f2e9cf;
+  --tf-stock-ink: #221b10;
+  --tf-bid: #3fa08f;
+  --tf-offer: #c0505c;
+  --tf-brass: #d0a54a;
+  --tf-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --tf-display: 'Fraunces', Georgia, serif;
+
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+}
+
+/* ---- prints ticker ---- */
+.trading-floor-theme .ticker {
+  margin: 18px 0 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: linear-gradient(180deg, #1b1610, #141009);
+  overflow: hidden;
+  position: relative;
+}
+
+.trading-floor-theme .ticker::before {
+  content: 'PRINTS';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-family: var(--tf-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--tf-surround);
+  background: var(--tf-brass);
+  z-index: 2;
+}
+
+.trading-floor-theme .ticker__rail {
+  display: flex;
+  gap: 34px;
+  white-space: nowrap;
+  padding: 9px 0 9px 84px;
+  font-family: var(--tf-mono);
+  font-size: 13px;
+  animation: tf-ticker-slide 26s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trading-floor-theme .ticker__rail {
+    animation: none;
+  }
+}
+
+@keyframes tf-ticker-slide {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* ---- the felt table ---- */
+.trading-floor-theme .floor {
+  position: relative;
+  margin: 26px auto 0;
+  aspect-ratio: 16 / 10;
+  max-width: 960px;
+  border-radius: 22px;
+  padding: 26px;
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgba(208, 165, 74, 0.1), transparent 60%),
+    linear-gradient(180deg, #241d13, #181209);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 22px 50px -20px rgba(0, 0, 0, 0.75);
+}
+
+@media (max-width: 720px) {
+  .trading-floor-theme .floor {
+    aspect-ratio: auto;
+    min-height: 560px;
+  }
+}
+
+.trading-floor-theme .floor__table {
+  position: absolute;
+  inset: 52px 64px 64px;
+  border-radius: 50% / 50%;
+  background: radial-gradient(80% 70% at 50% 38%, var(--tf-felt-hi), var(--tf-felt) 55%, var(--tf-felt-lo) 100%);
+  box-shadow:
+    inset 0 4px 22px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 3px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 9px rgba(208, 165, 74, 0.16);
+  border: 2px solid #0a2c21;
+}
+
+.trading-floor-theme .floor__rail {
+  position: absolute;
+  left: 26px;
+  right: 26px;
+  top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  z-index: 5;
+}
+
+.trading-floor-theme .floor__phase-label {
+  font-family: var(--tf-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.trading-floor-theme .floor__phases {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+}
+
+.trading-floor-theme .floor__phase-dot {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(243, 234, 212, 0.16);
+}
+
+.trading-floor-theme .floor__phase-dot.is-done {
+  background: var(--tf-brass);
+}
+
+.trading-floor-theme .floor__phase-dot.is-now {
+  background: var(--tf-bid);
+  box-shadow: 0 0 10px var(--tf-bid);
+}
+
+.trading-floor-theme .floor__timer {
+  font-family: var(--tf-mono);
+  font-weight: 600;
+  color: var(--text-primary);
+  background: #0c0906;
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  padding: 3px 9px;
+  font-size: 13px;
+}
+
+.trading-floor-theme .floor__centre {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 3;
+}
+
+.trading-floor-theme .floor__pot {
+  font-family: var(--tf-mono);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(243, 234, 212, 0.72);
+}
+
+.trading-floor-theme .floor__pot b {
+  display: block;
+  font-family: var(--tf-display);
+  font-weight: 600;
+  font-size: 2.2rem;
+  color: var(--text-primary);
+  line-height: 1.05;
+}
+
+.trading-floor-theme .floor__board {
+  display: flex;
+  gap: 9px;
+  justify-content: center;
+  margin-top: 10px;
+}
+
+.trading-floor-theme .floor-card {
+  width: 52px;
+  height: 74px;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #fbf5e4, var(--tf-stock));
+  color: var(--tf-stock-ink);
+  position: relative;
+  box-shadow: 0 6px 14px -6px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--tf-display);
+  font-weight: 600;
+  font-size: 1.7rem;
+}
+
+.trading-floor-theme .floor-card.is-down {
+  background: repeating-linear-gradient(45deg, #7a2530 0 7px, #6a1f29 7px 14px);
+  box-shadow: 0 6px 14px -6px rgba(0, 0, 0, 0.7), inset 0 0 0 2px rgba(208, 165, 74, 0.4);
+}
+
+.trading-floor-theme .floor-card--small {
+  width: 40px;
+  height: 58px;
+  font-size: 1.3rem;
+  margin: 0 auto;
+}
+
+.trading-floor-theme .floor__dealer {
+  position: absolute;
+  left: 50%;
+  top: 74%;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  text-align: center;
+}
+
+.trading-floor-theme .floor__dealer-chip {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  margin: 0 auto;
+  background: repeating-conic-gradient(var(--tf-brass) 0 18deg, #1a1409 18deg 36deg);
+  border: 2px solid var(--tf-brass);
+  display: grid;
+  place-items: center;
+  font-family: var(--tf-display);
+  font-weight: 900;
+  color: var(--tf-surround);
+  font-size: 0.8rem;
+}
+
+.trading-floor-theme .floor__dealer-say {
+  margin-top: 6px;
+  font-family: var(--tf-display);
+  font-style: italic;
+  font-size: 0.86rem;
+  color: rgba(243, 234, 212, 0.82);
+  max-width: 230px;
+}
+
+.trading-floor-theme .floor-seat {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 140px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.trading-floor-theme .floor-seat__token {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 1.4rem;
+  background: radial-gradient(circle at 35% 30%, #3a2f1f, #211a11);
+  border: 2px solid var(--border-subtle);
+  box-shadow: 0 5px 12px -4px rgba(0, 0, 0, 0.7);
+}
+
+.trading-floor-theme .floor-seat__name {
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
+.trading-floor-theme .floor-seat__meta {
+  font-family: var(--tf-mono);
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+
+.trading-floor-theme .floor-seat--you {
+  left: 50%;
+  top: 96%;
+}
+
+/* ---- ask-for-a-price chips + hit/lift ---- */
+.trading-floor-theme .chip-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.trading-floor-theme .chip {
+  font-family: var(--font-family);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: #0e0b07;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 7px 13px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.trading-floor-theme .chip:hover,
+.trading-floor-theme .chip[aria-pressed='true'] {
+  border-color: var(--tf-brass);
+  background: #181207;
+}
+
+.trading-floor-theme .chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.trading-floor-theme .quote-price-row {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.trading-floor-theme .quote-price-row__who {
+  flex: 1;
+  background: #0e0b07;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.trading-floor-theme .quote-price-row__who span {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.trading-floor-theme .quote-price-btn {
+  font-family: var(--tf-mono);
+  font-weight: 600;
+  font-size: 1.02rem;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 16px;
+  color: #0c0906;
+  min-width: 96px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+.trading-floor-theme .quote-price-btn:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.06);
+}
+
+.trading-floor-theme .quote-price-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.trading-floor-theme .quote-price-btn small {
+  display: block;
+  font-family: var(--font-family);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.trading-floor-theme .quote-price-btn b {
+  font-size: 1.25rem;
+}
+
+.trading-floor-theme .quote-price-btn--hit {
+  background: linear-gradient(180deg, #54b6a4, var(--tf-bid));
+}
+
+.trading-floor-theme .quote-price-btn--lift {
+  background: linear-gradient(180deg, #d16770, var(--tf-offer));
+  color: #fff;
+}
+
+.trading-floor-theme .quote-respond {
+  border-color: rgba(208, 165, 74, 0.5);
+}
+
 /* ---- Stack utility ---- */
 .stack {
   display: flex;
