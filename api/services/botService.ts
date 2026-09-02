@@ -3,7 +3,9 @@ import { roomService, RoomServiceError, type RoomRecord, type RoomPlayer } from 
 import { roomEvents } from '../lib/roomEvents';
 import { gameEvents, type GameEvent } from '../lib/gameEvents';
 import { FloorCoordinator } from '../agents/floorCoordinator';
-import { createPersonalityAgent, estimateFairValue, bluffedQuoteMid } from '../agents/personalities';
+import { createPersonalityAgent } from '../agents/personalities';
+import { getStrategyForCharacter } from '../agents/strategy';
+import { isFloorModeEnabled } from '../lib/featureFlags';
 
 // A targeted quote request deserves a faster answer than the passive 3s tick
 // loop that drives ordinary order-book flow.
@@ -14,7 +16,10 @@ const QUOTE_RESPONSE_DELAY_JITTER_MS = 700;
 // Coordinator singleton
 // ---------------------------------------------------------------------------
 
-const coordinator = new FloorCoordinator();
+// Floor mode (issue #25/#28) is read once here, when the singleton is built.
+// On -> bots trade only through quotes (Strategy) and the order book is retired
+// for them; off -> the legacy order-book path drives bots exactly as before.
+const coordinator = new FloorCoordinator({ floorMode: isFloorModeEnabled() });
 
 // Track which rooms are actively ticking
 const activeRooms = new Set<string>();
@@ -138,16 +143,35 @@ class BotService {
     const botCard = gs.playerCards.find((c) => c.id === botId);
     if (!bot || !botCard) return;
 
-    // The bot knows its OWN honest fair value...
-    const fairValue = estimateFairValue(botCard.value, gs.revealedCommunityCards, room.players.length);
-    // ...but it does NOT quote it. It bluffs per personality, leaning on the
-    // room's consensus (issue #27): the Bull talks it up, the Bear down, the
-    // Whale quotes loud to drag the crowd. The mid is deliberately biased away
-    // from fairValue in a fixed, learnable direction so a sharp player can read
-    // and fade it.
-    const mid = Math.round(bluffedQuoteMid(bot.character, fairValue, gs.consensus));
+    // Route the answer through the SINGLE Strategy interface (issue #25). The
+    // strategy's RESPOND branch still produces the exact #27 bluff -- the Bull
+    // talks it up, the Bear down, the Whale quotes loud to drag the crowd -- but
+    // now via `decide`, so there is one and only one place bot pricing lives.
+    // This handles the HUMAN -> bot quote (a human asked a bot for a price);
+    // bot -> bot quotes are answered inside the FloorCoordinator's floor tick.
+    const strategy = getStrategyForCharacter(bot.character);
+    const action = strategy.decide(
+      {
+        consensus: gs.consensus,
+        // Timing does not affect a bluffed response; the RESPOND branch ignores
+        // it, so a neutral placeholder is fine here.
+        timeRemainingMs: 0,
+        phaseDurationMs: 1,
+        targets: [],
+        rng: Math.random,
+      },
+      {
+        myId: botId,
+        myCard: botCard.value,
+        revealedCommunityCards: gs.revealedCommunityCards,
+        playerCount: room.players.length,
+        myNetPosition: 0,
+        pendingForMe: { quoteId },
+      },
+    );
+    if (action.type !== 'respondQuote') return;
 
-    await roomService.respondToQuote(roomId, botId, quoteId, mid - 1, mid + 1);
+    await roomService.respondToQuote(roomId, botId, quoteId, action.bid, action.ask);
   }
 
   // -----------------------------------------------------------------------

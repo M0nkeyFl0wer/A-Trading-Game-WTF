@@ -1,10 +1,17 @@
 import type { TradingAgent, AgentContext, AgentResponse, AgentActionType } from './types';
 import type { RoomRecord, RoomPlayer } from '../services/roomService';
 import type { TradingPhase } from '@trading-game/shared';
+import { PHASE_SEQUENCE } from '@trading-game/shared';
 import { roomService, RoomServiceError } from '../services/roomService';
 import { knowledgeGraph } from '../services/knowledgeGraph';
 import { commentatorService, type CommentaryCharacter } from '../services/commentatorService';
 import { logger } from '../lib/logger';
+import {
+  getStrategyForCharacter,
+  type PublicState,
+  type PrivateState,
+  type QuoteTarget,
+} from './strategy';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -19,6 +26,12 @@ export interface FloorConfig {
   maxActionsPerTick: number;     // cap on agents acting per tick (default 3)
   commentaryThrottleMs: number;  // min time between voice lines (default 15000)
   actionDelayMs: [number, number]; // [min, max] delay between individual actions (default [300, 800])
+  // Floor mode (issue #25/#28). When true, bots trade ONLY through the Strategy
+  // quote interface (requestQuote/respondQuote/hit/lift) and the order-book path
+  // (submitOrder) is never taken. When false, the legacy order-book path runs
+  // exactly as before. Off by default so nothing changes unless the floor UI is
+  // deliberately switched on server-side (ENABLE_TRADING_FLOOR=true).
+  floorMode: boolean;
 }
 
 const DEFAULT_FLOOR_CONFIG: FloorConfig = {
@@ -30,6 +43,7 @@ const DEFAULT_FLOOR_CONFIG: FloorConfig = {
   maxActionsPerTick: 3,
   commentaryThrottleMs: 15000,
   actionDelayMs: [300, 800],
+  floorMode: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -42,9 +56,22 @@ export class FloorCoordinator {
   private lastCommentary = 0;
   private tickTimers = new Map<string, NodeJS.Timeout>(); // roomId -> timer
   private config: FloorConfig;
+  // Injectable randomness threaded into every Strategy.decide call. Defaults to
+  // Math.random; tests pass a seeded generator to make floor rounds deterministic.
+  private rng: () => number;
 
-  constructor(config: Partial<FloorConfig> = {}) {
+  constructor(config: Partial<FloorConfig> = {}, rng: () => number = Math.random) {
     this.config = { ...DEFAULT_FLOOR_CONFIG, ...config };
+    this.rng = rng;
+  }
+
+  /**
+   * Run exactly one tick for a room and await it. Exposed for tests and the
+   * boot smoke, which need to drive the floor synchronously rather than waiting
+   * on the interval timer.
+   */
+  async tickOnce(roomId: string): Promise<void> {
+    await this.runTick(roomId);
   }
 
   /** Register an agent (bot) with the coordinator. */
@@ -125,6 +152,14 @@ export class FloorCoordinator {
     // Find bot players in this room
     const botPlayers = room.players.filter(p => p.isBot);
     if (botPlayers.length === 0) return;
+
+    // FLOOR MODE (issue #25/#28): bots trade ONLY through quotes. Hand the tick
+    // to the quote-driven path and return -- the order-book code below never
+    // runs, so submitOrder is never called for a floor-mode bot.
+    if (this.config.floorMode) {
+      await this.runFloorTick(roomId, room, gs, botPlayers);
+      return;
+    }
 
     // Build context and poll each agent
     const responses: Array<{
@@ -208,6 +243,201 @@ export class FloorCoordinator {
     } catch (err) {
       logger.debug({ err, roomId }, 'kg: tick pattern recording failed (non-fatal)');
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Floor mode: quote-driven tick (issue #25 + #28)
+  // -----------------------------------------------------------------------
+
+  /**
+   * One quote-driven tick. Bots act ONLY through the Strategy interface and the
+   * roomService quote endpoints; the order book is never touched.
+   *
+   * Three phases, in this order, so the market flows across ticks like a real
+   * floor instead of collapsing to an instant round-trip:
+   *
+   *   1. RESOLVE  -- any quote a bot requested that has now been answered:
+   *                  that bot's strategy decides hit / lift / pass.
+   *   2. INITIATE -- idle bots (no quote of their own in flight) may proactively
+   *                  request a two-way price from another player, gated by
+   *                  personality / time pressure / consensus dislocation and
+   *                  capped per tick so it feels like a market, not spam.
+   *   3. RESPOND  -- any pending quote addressed to a bot: that bot's strategy
+   *                  answers with a two-way price (the #27 bluff, preserved).
+   *
+   * A quote initiated in phase 2 is answered in phase 3 of the SAME tick, then
+   * resolved in phase 1 of the NEXT tick -> roughly one bot<->bot print per bot
+   * per tick, which the tick cadence rate-governs. Every fill and every answer
+   * runs through roomService, so consensus (#23) updates and the prints land on
+   * the tape exactly like a human's would.
+   *
+   * NOTE: bot-initiated quotes only. Human-initiated quotes to a bot are still
+   * answered by botService.handleQuoteRequest so a human never waits a full tick
+   * for a price; this method deliberately skips quotes a human requested.
+   */
+  private async runFloorTick(
+    roomId: string,
+    room: RoomRecord,
+    gs: NonNullable<RoomRecord['gameState']>,
+    botPlayers: RoomPlayer[],
+  ): Promise<void> {
+    const botIds = new Set(botPlayers.map((p) => p.id));
+    const quotes = gs.quotes ?? [];
+
+    // --- Phase 1: RESOLVE answered, bot-initiated quotes -------------------
+    for (const quote of quotes) {
+      if (quote.status !== 'quoted') continue;
+      if (!botIds.has(quote.requesterId)) continue; // only bot-initiated
+      if (quote.bidPrice === undefined || quote.askPrice === undefined) continue;
+
+      const requester = botPlayers.find((p) => p.id === quote.requesterId);
+      if (!requester) continue;
+
+      const strat = getStrategyForCharacter(requester.character);
+      const priv = this.buildPrivateState(requester, gs, {
+        answered: { quoteId: quote.id, bid: quote.bidPrice, ask: quote.askPrice },
+      });
+      const action = strat.decide(this.buildPublicState(requester, room, gs), priv);
+
+      try {
+        if (action.type === 'hit') {
+          await roomService.hitQuote(roomId, requester.id, quote.id);
+        } else if (action.type === 'lift') {
+          await roomService.liftQuote(roomId, requester.id, quote.id);
+        }
+        // 'pass' (or any other) -> leave the quote to expire on its own.
+      } catch (err) {
+        this.logFloorError(err, requester, action.type);
+      }
+    }
+
+    // --- Phase 2: INITIATE new quotes from idle bots -----------------------
+    // A bot is "idle" only if it has no quote of its own already in flight --
+    // the roomService enforces one active outbound quote per requester, so this
+    // both respects that invariant and keeps the flow paced.
+    const hasActiveOutbound = (botId: string): boolean =>
+      quotes.some(
+        (q) => q.requesterId === botId && (q.status === 'pending' || q.status === 'quoted'),
+      );
+
+    // Rank idle bots by how badly their strategy wants to act, then cap the
+    // number that fire this tick (maxActionsPerTick) so a crowded table does not
+    // spray requests all at once.
+    const initiators = botPlayers
+      .filter((p) => !hasActiveOutbound(p.id))
+      .slice(0, this.config.maxActionsPerTick);
+
+    for (const bot of initiators) {
+      const strat = getStrategyForCharacter(bot.character);
+      const priv = this.buildPrivateState(bot, gs, {});
+      const action = strat.decide(this.buildPublicState(bot, room, gs), priv);
+      if (action.type !== 'requestQuote') continue;
+
+      try {
+        await roomService.requestQuote(roomId, bot.id, action.targetId);
+      } catch (err) {
+        this.logFloorError(err, bot, action.type);
+      }
+    }
+
+    // --- Phase 3: RESPOND to pending, bot-initiated quotes -----------------
+    // Re-read the room so we see quotes just created in phase 2. Skipping this
+    // read would delay every bot<->bot answer by a whole tick.
+    let latest: RoomRecord;
+    try {
+      latest = await roomService.getRoom(roomId);
+    } catch {
+      return;
+    }
+    const latestGs = latest.gameState;
+    if (!latestGs) return;
+
+    for (const quote of latestGs.quotes ?? []) {
+      if (quote.status !== 'pending') continue;
+      if (!botIds.has(quote.targetId)) continue;    // target must be a bot
+      if (!botIds.has(quote.requesterId)) continue;  // bot-initiated only
+
+      const target = botPlayers.find((p) => p.id === quote.targetId);
+      if (!target) continue;
+
+      const strat = getStrategyForCharacter(target.character);
+      const priv = this.buildPrivateState(target, latestGs, {
+        pendingForMe: { quoteId: quote.id },
+      });
+      const action = strat.decide(this.buildPublicState(target, latest, latestGs), priv);
+      if (action.type !== 'respondQuote') continue;
+
+      try {
+        await roomService.respondToQuote(roomId, target.id, quote.id, action.bid, action.ask);
+      } catch (err) {
+        this.logFloorError(err, target, action.type);
+      }
+    }
+  }
+
+  /** Uniform, non-fatal logging for a rejected floor action. */
+  private logFloorError(err: unknown, player: RoomPlayer, actionType: string): void {
+    if (err instanceof RoomServiceError) {
+      // Expected races: quote expired, already resolved (409), margin, phase moved on.
+      logger.debug(
+        { player: player.name, action: actionType, status: err.status, message: err.message },
+        'floor action rejected',
+      );
+    } else {
+      logger.warn({ err, player: player.name, action: actionType }, 'floor action failed');
+    }
+  }
+
+  /** Public market snapshot fed to Strategy.decide (issue #25). */
+  private buildPublicState(
+    self: RoomPlayer,
+    room: RoomRecord,
+    gs: NonNullable<RoomRecord['gameState']>,
+  ): PublicState {
+    // Everyone I could ask -- never myself. Bots are weighted above the human by
+    // the strategy itself; here we just report who exists and their kind.
+    const targets: QuoteTarget[] = room.players
+      .filter((p) => p.id !== self.id)
+      .map((p) => ({ id: p.id, isBot: !!p.isBot }));
+
+    // Phase length for time-pressure normalisation. Fall back to the blind
+    // phase's duration if the phase is somehow unknown.
+    const phaseCfg = PHASE_SEQUENCE.find((p) => p.phase === gs.phase);
+    const phaseDurationMs = phaseCfg?.durationMs ?? PHASE_SEQUENCE[0].durationMs;
+
+    return {
+      consensus: gs.consensus,
+      timeRemainingMs: Math.max(0, (gs.phaseEndsAt ?? Date.now()) - Date.now()),
+      phaseDurationMs,
+      targets,
+      rng: this.rng,
+    };
+  }
+
+  /** Private per-bot snapshot fed to Strategy.decide (issue #25). */
+  private buildPrivateState(
+    self: RoomPlayer,
+    gs: NonNullable<RoomRecord['gameState']>,
+    ctx: { pendingForMe?: { quoteId: string }; answered?: PrivateState['answered'] },
+  ): PrivateState {
+    const myCard = gs.playerCards?.find((c) => c.id === self.id)?.value ?? 0;
+
+    // Net position from matched trades so a strategy can (later) respect limits.
+    let netPosition = 0;
+    for (const t of gs.matchedTrades ?? []) {
+      if (t.buyerId === self.id) netPosition += t.quantity;
+      if (t.sellerId === self.id) netPosition -= t.quantity;
+    }
+
+    return {
+      myId: self.id,
+      myCard,
+      revealedCommunityCards: gs.revealedCommunityCards ?? [],
+      playerCount: gs.playerCards?.length ?? 0,
+      myNetPosition: netPosition,
+      pendingForMe: ctx.pendingForMe,
+      answered: ctx.answered,
+    };
   }
 
   // -----------------------------------------------------------------------
