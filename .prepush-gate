@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Repo test gate for the global pre-push hook (~/.config/git/hooks/pre-push).
+#
+# This is a Node/TypeScript pnpm workspace, not a Python project -- the
+# global hook's default `pytest -q` was false-triggering off the legacy
+# tests/ directory of JS scripts (chrome-devtools-test.js, red-team/, etc.)
+# and failing every push with "no tests ran". The hook looks for an
+# executable .prepush-gate at the repo root and, if present, runs THAT
+# instead of guessing at a test runner.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+source "$HOME/.nvm/nvm.sh" >/dev/null 2>&1 || true
+nvm use >/dev/null 2>&1 || true
+corepack enable >/dev/null 2>&1 || true
+
+AUTH_DEV_BYPASS=true corepack pnpm -r test
