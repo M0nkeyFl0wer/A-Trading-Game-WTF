@@ -139,6 +139,7 @@ export function useRoomState(roomId?: string) {
   const setRevealedCommunityCards = useGameStore((state) => state.setRevealedCommunityCards);
   const setPhaseEndsAt = useGameStore((state) => state.setPhaseEndsAt);
   const setMyCard = useGameStore((state) => state.setMyCard);
+  const setConsensus = useGameStore((state) => state.setConsensus);
   const setSettlement = useGameStore((state) => state.setSettlement);
   const setCommentary = useGameStore((state) => state.setCommentary);
   const setQuotes = useGameStore((state) => state.setQuotes);
@@ -172,6 +173,9 @@ export function useRoomState(roomId?: string) {
       if (Array.isArray(gs.revealedCommunityCards)) {
         setRevealedCommunityCards(gs.revealedCommunityCards as number[]);
       }
+      // Consensus is the aggregate market belief the server maintains (#23).
+      // It may be absent on rooms dealt before the field existed -> null.
+      setConsensus(typeof gs.consensus === 'number' ? gs.consensus : null);
       if (Array.isArray(gs.quotes)) {
         setQuotes(gs.quotes as QuoteRequest[]);
       }
@@ -227,7 +231,7 @@ export function useRoomState(roomId?: string) {
   }, [
     currentUser, setPlayers, setGamePhase, setRoundNumber, setTradingPhase,
     setOrders, setMatchedTrades, setRevealedCommunityCards, setPhaseEndsAt,
-    setMyCard, setSettlement, setCommentary, setQuotes,
+    setMyCard, setConsensus, setSettlement, setCommentary, setQuotes,
   ]);
 
   useEffect(() => {

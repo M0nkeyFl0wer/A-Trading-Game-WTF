@@ -86,11 +86,25 @@ describe('game store state', () => {
     expect(useGameStore.getState().revealedCommunityCards).toEqual([15, 7]);
   });
 
+  // Consensus is the server's aggregate market belief mirrored into the store
+  // (issue #23); it starts null and is set from each room:updated payload.
+  test('setConsensus stores the drifting market belief', () => {
+    expect(useGameStore.getState().consensus).toBeNull();
+
+    const { setConsensus } = useGameStore.getState();
+    setConsensus(42.5);
+    expect(useGameStore.getState().consensus).toBe(42.5);
+
+    setConsensus(null);
+    expect(useGameStore.getState().consensus).toBeNull();
+  });
+
   test('resetGame clears all trading state', () => {
     const store = useGameStore.getState();
     store.setTradingPhase('flop');
     store.setOrders([{ id: 'o1', playerId: 'p1', side: 'bid', price: 60, quantity: 1, remaining: 1, phase: 'blind', timestamp: Date.now(), status: 'open' }]);
     store.setMyCard(10);
+    store.setConsensus(55);
     store.setSettlement(100, { 'p1': 5 });
     store.setRevealedCommunityCards([5, 10, 15]);
 
@@ -101,6 +115,7 @@ describe('game store state', () => {
     expect(state.orders).toHaveLength(0);
     expect(state.matchedTrades).toHaveLength(0);
     expect(state.myCard).toBeNull();
+    expect(state.consensus).toBeNull();
     expect(state.settlementTotal).toBeNull();
     expect(state.pnl).toBeNull();
     expect(state.revealedCommunityCards).toHaveLength(0);

@@ -45,6 +45,9 @@ interface GameState {
   revealedCommunityCards: number[];
   phaseEndsAt: number | null;
   myCard: number | null;
+  // The room's live "market belief" (issue #23): a drifting average of quote
+  // mids and fills the server pushes down. Distinct from the static fair value.
+  consensus: number | null;
   settlementTotal: number | null;
   pnl: Record<string, number> | null;
   commentary: Commentary[];
@@ -69,6 +72,7 @@ interface GameState {
   setRevealedCommunityCards: (cards: number[]) => void;
   setPhaseEndsAt: (ts: number | null) => void;
   setMyCard: (value: number | null) => void;
+  setConsensus: (value: number | null) => void;
   setSettlement: (total: number | null, pnl: Record<string, number> | null) => void;
   setCommentary: (comments: Commentary[]) => void;
   setQuotes: (quotes: QuoteRequest[]) => void;
@@ -104,6 +108,7 @@ export const useGameStore = create<GameState>((set) => {
     revealedCommunityCards: [],
     phaseEndsAt: null,
     myCard: null,
+    consensus: null,
     settlementTotal: null,
     pnl: null,
     commentary: [],
@@ -123,6 +128,7 @@ export const useGameStore = create<GameState>((set) => {
       revealedCommunityCards: [],
       phaseEndsAt: null,
       myCard: null,
+      consensus: null,
       settlementTotal: null,
       pnl: null,
       commentary: [],
@@ -142,6 +148,7 @@ export const useGameStore = create<GameState>((set) => {
     setRevealedCommunityCards: (cards) => set({ revealedCommunityCards: cards }),
     setPhaseEndsAt: (ts) => set({ phaseEndsAt: ts }),
     setMyCard: (value) => set({ myCard: value }),
+    setConsensus: (value) => set({ consensus: value }),
     setSettlement: (total, pnl) => set({ settlementTotal: total, pnl }),
     setCommentary: (comments) => set({ commentary: comments }),
     setQuotes: (quotes) => set({ quotes }),

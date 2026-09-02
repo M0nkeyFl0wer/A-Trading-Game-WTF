@@ -22,6 +22,10 @@ export function sanitizeRoomForPlayer(room: RoomRecord, playerId: string | undef
     phase: gs.phase,
     // NEVER send raw community cards to clients -- only revealed ones
     revealedCommunityCards: gs.revealedCommunityCards,
+    // Consensus is aggregate market belief (issue #23): a running average of
+    // quote mids and fills. It carries no per-player card info, so it is safe
+    // to send to every client -- that visibility is the whole point.
+    consensus: gs.consensus,
     phaseEndsAt: gs.phaseEndsAt,
     updatedAt: gs.updatedAt,
     // Only show own card value, others get null

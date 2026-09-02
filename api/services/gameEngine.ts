@@ -3,6 +3,8 @@ import { OrderBook } from '@trading-game/core';
 import {
   DEFAULT_DECK,
   PHASE_SEQUENCE,
+  DECK_MEAN,
+  COMMUNITY_CARD_COUNT,
 } from '@trading-game/shared';
 import type {
   TradingPhase,
@@ -40,6 +42,13 @@ export interface RoomGameState {
   /** Two-way quote requests (ask a named player for a price). Absent on rooms dealt before this field existed. */
   quotes?: QuoteRequest[];
   playerCards: Array<{ id: string; value: number; revealed: boolean }>;
+  /**
+   * The room's live "market belief" (issue #23): an EWMA of recent quote mids
+   * and fill prices. Seeded at deal time to the no-information prior for the
+   * total, then dragged around as quotes are made and trades print. Aggregate
+   * only -- it leaks no per-player card info, so it is safe to send to clients.
+   */
+  consensus?: number;
   /** Unix-ms timestamp when current phase timer expires. */
   phaseEndsAt: number;
   updatedAt: number;
@@ -112,6 +121,43 @@ function expireOpenQuotes(quotes: QuoteRequest[] | undefined): QuoteRequest[] | 
 }
 
 // ---------------------------------------------------------------------------
+// Consensus signal (issue #23)
+//
+// `consensus` is the room's live "market belief" about the settlement total.
+// It is an exponentially-weighted moving average (EWMA): each new observation
+// (a quote's mid, or a fill price) drags the running value a fixed fraction of
+// the way toward the sample. A larger alpha reacts faster and is noisier; this
+// value is tuned so a handful of loud quotes visibly move the number without a
+// single print snapping it all the way over.
+// ---------------------------------------------------------------------------
+
+export const CONSENSUS_ALPHA = 0.3;
+
+/**
+ * One EWMA step. Returns the new consensus given the previous value (or
+ * undefined for the very first observation, in which case the sample becomes
+ * the seed) and a fresh sample.
+ */
+export function ewma(
+  previous: number | undefined,
+  sample: number,
+  alpha: number = CONSENSUS_ALPHA,
+): number {
+  if (previous === undefined || !Number.isFinite(previous)) return sample;
+  return alpha * sample + (1 - alpha) * previous;
+}
+
+/**
+ * The no-information prior for the settlement total: every one of the
+ * (playerCount + 3) dealt cards valued at the deck mean. Used to seed
+ * `consensus` at deal time so the readout starts somewhere sensible before any
+ * quote lands, and matches what an observer holding no card would expect.
+ */
+export function neutralConsensus(playerCount: number): number {
+  return (playerCount + COMMUNITY_CARD_COUNT) * DECK_MEAN;
+}
+
+// ---------------------------------------------------------------------------
 // GameEngine
 // ---------------------------------------------------------------------------
 
@@ -175,6 +221,9 @@ export class GameEngine {
       matchedTrades: [],
       quotes: [],
       playerCards,
+      // Seed the market belief at the no-information prior (issue #23) so the
+      // readout starts sensible; quotes and prints drag it from here.
+      consensus: neutralConsensus(room.players.length),
       phaseEndsAt: now + blindConfig.durationMs,
       updatedAt: now,
       commitments,
@@ -273,10 +322,20 @@ export class GameEngine {
     const allTrades = book.getMatchedTrades();
 
     const now = Date.now();
+
+    // Every fresh order-book print is a belief observation too. Fold each new
+    // trade into consensus in time order so a burst of fills moves it the same
+    // way a single fill would, just more (issue #23).
+    let consensus = gs.consensus;
+    for (const t of newTrades) {
+      consensus = ewma(consensus, t.price);
+    }
+
     const gameState: RoomGameState = {
       ...gs,
       orders: allOrders,
       matchedTrades: allTrades,
+      consensus,
       updatedAt: now,
     };
 
@@ -373,9 +432,14 @@ export class GameEngine {
       respondedAt: now,
     };
 
+    // A fresh two-way quote is a data point about where the room thinks the
+    // total sits: drag consensus toward its mid (issue #23).
+    const quoteMid = (bidPrice + askPrice) / 2;
+
     return {
       ...gs,
       quotes: (gs.quotes ?? []).map((q) => (q.id === quoteId ? updatedQuote : q)),
+      consensus: ewma(gs.consensus, quoteMid),
       updatedAt: now,
     };
   }
@@ -433,6 +497,9 @@ export class GameEngine {
       ...gs,
       quotes: (gs.quotes ?? []).map((q) => (q.id === quoteId ? resolvedQuote : q)),
       matchedTrades: [...gs.matchedTrades, trade],
+      // A print is the strongest belief signal there is -- someone actually
+      // traded at this price. Drag consensus toward the fill (issue #23).
+      consensus: ewma(gs.consensus, price),
       updatedAt: now,
     };
 
