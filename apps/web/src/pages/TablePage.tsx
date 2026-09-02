@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { computeEV } from '@trading-game/shared';
+import { estimateFairValue } from '@trading-game/shared';
 import OrderForm from '../ui/OrderForm';
 import OrderBookDisplay from '../ui/OrderBookDisplay';
 import PhaseIndicator from '../ui/PhaseIndicator';
@@ -14,6 +14,7 @@ import VoiceControlsMini from '../ui/VoiceControlsMini';
 import PrintsTicker from '../ui/PrintsTicker';
 import TradingFloor from '../ui/TradingFloor';
 import QuoteRequestPanel from '../ui/QuoteRequestPanel';
+import Walkthrough from '../ui/Walkthrough';
 import QuoteRespondPrompt from '../ui/QuoteRespondPrompt';
 import TradeBlotter from '../ui/TradeBlotter';
 import { useGameVoice } from '../hooks/useGameVoice';
@@ -36,6 +37,10 @@ export default function TablePage() {
   const tradingPhase = useGameStore((state) => state.tradingPhase);
   const myCard = useGameStore((state) => state.myCard);
   const matchedTrades = useGameStore((state) => state.matchedTrades);
+  // Needed by the corrected fair value (issue #24): it conditions on the real
+  // table size and the community cards revealed so far, not a fixed constant.
+  const players = useGameStore((state) => state.players);
+  const revealedCommunityCards = useGameStore((state) => state.revealedCommunityCards);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [startingRound, setStartingRound] = useState(false);
@@ -106,7 +111,11 @@ export default function TablePage() {
     }
   }, [tradingPhase, gamePhase]);
 
-  const ev = myCard != null ? computeEV(myCard) : null;
+  // The player's fair value -- identical to what the bots price against (#24).
+  const ev =
+    myCard != null
+      ? estimateFairValue(myCard, revealedCommunityCards, players.length)
+      : null;
 
   if (!id) {
     return (
@@ -287,6 +296,8 @@ export default function TablePage() {
         // A plain block wrapper -- .floor relies on aspect-ratio sizing, which
         // collapses if it's a direct child of .page's flex column layout.
         <div>
+          {/* First-run, skippable, replayable how-to-play overlay (issue #30). */}
+          <Walkthrough />
           <PrintsTicker />
           <TradingFloor />
 

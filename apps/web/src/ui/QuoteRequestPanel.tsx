@@ -94,23 +94,34 @@ export default function QuoteRequestPanel({ roomId, disabled }: QuoteRequestPane
             <strong>{myQuote.targetName}</strong>
             <span>made a price</span>
           </div>
+          {/*
+            Hit/Lift are trading jargon. Spell out what each one MEANS for a new
+            player (issue #30): hitting the bid is selling because you think the
+            total finishes below that price; lifting the offer is buying because
+            you think it finishes above. The plain-language caption and the
+            aria-label both carry the meaning.
+          */}
           <button
             type="button"
             className="quote-price-btn quote-price-btn--hit"
             onClick={() => resolve(hitQuote)}
             disabled={submitting}
+            aria-label={`Hit the bid: sell at ${myQuote.bidPrice} because you think the total finishes lower`}
           >
-            <small>Hit &middot; sell</small>
+            <small>SELL the bid</small>
             <b>{myQuote.bidPrice}</b>
+            <span className="quote-price-btn__why">you think it finishes LOWER</span>
           </button>
           <button
             type="button"
             className="quote-price-btn quote-price-btn--lift"
             onClick={() => resolve(liftQuote)}
             disabled={submitting}
+            aria-label={`Lift the offer: buy at ${myQuote.askPrice} because you think the total finishes higher`}
           >
-            <small>Lift &middot; buy</small>
+            <small>BUY the offer</small>
             <b>{myQuote.askPrice}</b>
+            <span className="quote-price-btn__why">you think it finishes HIGHER</span>
           </button>
         </div>
       )}

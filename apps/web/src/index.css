@@ -905,6 +905,47 @@ a:focus-visible {
   line-height: 1.05;
 }
 
+/* Legibility one-liner (#30): plain-words explainer above the numbers. */
+.trading-floor-theme .floor__explainer {
+  display: block;
+  font-family: var(--tf-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: rgba(243, 234, 212, 0.62);
+  margin-bottom: 6px;
+  max-width: 220px;
+  line-height: 1.35;
+}
+
+.trading-floor-theme .floor__explainer b {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Drifting consensus readout (#23): the live "market belief". Distinct from
+   the static fair value in .floor__pot -- coloured green/red as it moves. */
+.trading-floor-theme .floor__consensus {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 6px;
+  font-family: var(--tf-mono);
+  transition: color 0.4s ease;
+}
+
+.trading-floor-theme .floor__consensus-label {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.trading-floor-theme .floor__consensus b {
+  font-family: var(--tf-display);
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
 .trading-floor-theme .floor__board {
   display: flex;
   gap: 9px;
@@ -1107,6 +1148,20 @@ a:focus-visible {
   font-size: 1.25rem;
 }
 
+/* Plain-language caption spelling out what hit/lift mean (issue #30). */
+.trading-floor-theme .quote-price-btn__why {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-family);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  opacity: 0.85;
+  white-space: normal;
+  max-width: 120px;
+}
+
 .trading-floor-theme .quote-price-btn--hit {
   background: linear-gradient(180deg, #54b6a4, var(--tf-bid));
 }
@@ -1125,4 +1180,125 @@ a:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* ==========================================================================
+   FIRST-RUN WALKTHROUGH (issue #30) -- theme-agnostic, mobile-legible.
+   Uses the app's own tokens so it reads correctly in light and dark.
+   ========================================================================== */
+.walkthrough-replay {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.18));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary, #9aa);
+  cursor: pointer;
+}
+.walkthrough-replay:hover {
+  color: var(--text-primary, #fff);
+}
+
+.walkthrough-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(6, 8, 12, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.walkthrough-card {
+  width: 100%;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 22px 22px 18px;
+  border-radius: 14px;
+  background: var(--surface, #16181d);
+  color: var(--text-primary, #f2f2f2);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.14));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.walkthrough-steps {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.walkthrough-dot {
+  width: 22px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-subtle, rgba(255, 255, 255, 0.2));
+}
+.walkthrough-dot.is-now {
+  background: var(--accent, #d0a54a);
+}
+
+.walkthrough-title {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+  line-height: 1.25;
+}
+.walkthrough-body {
+  margin: 0 0 20px;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--text-secondary, #c7c7c7);
+}
+
+.walkthrough-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.walkthrough-nav {
+  display: flex;
+  gap: 8px;
+}
+.walkthrough-btn,
+.walkthrough-skip {
+  padding: 9px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.18));
+  background: transparent;
+  color: var(--text-primary, #fff);
+}
+.walkthrough-skip {
+  border-color: transparent;
+  color: var(--text-secondary, #9aa);
+}
+.walkthrough-btn--primary {
+  background: var(--accent, #d0a54a);
+  border-color: var(--accent, #d0a54a);
+  color: #0c0906;
+}
+
+/* Comfortable on a phone: stack the actions so buttons stay tappable. */
+@media (max-width: 420px) {
+  .walkthrough-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+  .walkthrough-nav {
+    justify-content: space-between;
+  }
+  .walkthrough-btn,
+  .walkthrough-skip {
+    flex: 1;
+    text-align: center;
+  }
 }

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { computeEV } from '@trading-game/shared';
+import { estimateFairValue } from '@trading-game/shared';
 import { useGameStore } from '../store';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -13,6 +13,10 @@ const currency = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 export default function TradeBlotter() {
   const matchedTrades = useGameStore((state) => state.matchedTrades);
   const myCard = useGameStore((state) => state.myCard);
+  // The corrected fair value marks the blotter against the same number the bots
+  // price against (issue #24): conditioned on table size and revealed cards.
+  const players = useGameStore((state) => state.players);
+  const revealedCommunityCards = useGameStore((state) => state.revealedCommunityCards);
   const { currentUser } = useAuth();
   const myId = currentUser?.uid;
 
@@ -24,7 +28,10 @@ export default function TradeBlotter() {
     [matchedTrades, myId],
   );
 
-  const markValue = myCard != null ? computeEV(myCard) : null;
+  const markValue =
+    myCard != null
+      ? estimateFairValue(myCard, revealedCommunityCards, players.length)
+      : null;
 
   return (
     <section className="card" aria-labelledby="blotter-heading">

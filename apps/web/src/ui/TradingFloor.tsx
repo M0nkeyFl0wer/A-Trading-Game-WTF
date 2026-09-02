@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { computeEV } from '@trading-game/shared';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { estimateFairValue } from '@trading-game/shared';
 import { useGameStore } from '../store';
 import type { PlayerState } from '../store';
 import { useAuth } from '../contexts/AuthContext';
@@ -36,6 +36,32 @@ function useCountdown(phaseEndsAt: number | null): string {
 }
 
 /**
+ * Track which way a number last moved, so the drifting consensus readout can
+ * show an up/down tint and arrow (issue #23). Returns 'up' | 'down' | 'flat'
+ * by comparing the latest value against the previous one we saw.
+ */
+function useDrift(value: number | null): 'up' | 'down' | 'flat' {
+  const prev = useRef<number | null>(null);
+  const [dir, setDir] = useState<'up' | 'down' | 'flat'>('flat');
+
+  useEffect(() => {
+    if (value == null) {
+      prev.current = null;
+      setDir('flat');
+      return;
+    }
+    if (prev.current != null) {
+      // Ignore sub-tick noise so a barely-moving average doesn't strobe.
+      const delta = value - prev.current;
+      if (Math.abs(delta) >= 0.05) setDir(delta > 0 ? 'up' : 'down');
+    }
+    prev.current = value;
+  }, [value]);
+
+  return dir;
+}
+
+/**
  * The oval-table shell: rail/timer, felt, dealer, seats arranged around the
  * oval, and your own seat at the bottom. Reads straight from the store, same
  * as SeatAvatars -- no forked seat-data hook until real duplication shows up.
@@ -46,6 +72,7 @@ export default function TradingFloor() {
   const phaseEndsAt = useGameStore((state) => state.phaseEndsAt);
   const revealedCommunityCards = useGameStore((state) => state.revealedCommunityCards);
   const myCard = useGameStore((state) => state.myCard);
+  const consensus = useGameStore((state) => state.consensus);
   const commentary = useGameStore((state) => state.commentary);
   const { currentUser } = useAuth();
   const myId = currentUser?.uid;
@@ -72,9 +99,19 @@ export default function TradingFloor() {
 
   const dealerLine = commentary[0]?.text ?? 'The market is open.';
   const phaseIndex = PHASES.indexOf((tradingPhase ?? '') as (typeof PHASES)[number]);
-  // Same EV estimate as the my-card-hero on the legacy layout -- an expected
-  // total, not a partial sum of only the cards revealed to you so far.
-  const expectedTotal = myCard != null ? computeEV(myCard) : null;
+  // The player's fair value -- the SAME function the bots price against
+  // (issue #24). Conditions on the real table size and the community cards
+  // revealed so far, so it tracks reveals and shrinks as the table shrinks.
+  const expectedTotal =
+    myCard != null
+      ? estimateFairValue(myCard, revealedCommunityCards, players.length)
+      : null;
+
+  // The DRIFTING consensus (issue #23) -- the room's live belief, distinct from
+  // the static fair value above. `drift` tints it as it moves.
+  const drift = useDrift(consensus);
+  const driftGlyph = drift === 'up' ? '▲' : drift === 'down' ? '▼' : '•';
+  const driftColor = drift === 'up' ? '#22c55e' : drift === 'down' ? '#ef4444' : 'var(--text-secondary)';
 
   return (
     <div className="floor" aria-label="Trading table">
@@ -98,8 +135,30 @@ export default function TradingFloor() {
       <div className="floor__table" />
 
       <div className="floor__centre">
-        <span className="floor__pot">
-          Total on the table &asymp; <b>{expectedTotal != null ? expectedTotal.toFixed(1) : '?'}</b>
+        {/*
+          Legibility one-liner (issue #30): spell out in plain words what the
+          player is betting on and the corrected fair value they're pricing
+          against. `totalCards` is one card per seat plus the 3 community cards.
+        */}
+        <span className="floor__explainer">
+          Betting on the total of all <b>{players.length + 3}</b> cards
+          {expectedTotal != null && (
+            <> &middot; fair &asymp; <b>{expectedTotal.toFixed(1)}</b></>
+          )}
+        </span>
+        {/*
+          The DRIFTING consensus (issue #23): the room's live market belief.
+          Deliberately distinct from the static fair value above -- this is the
+          number the whole game is about moving.
+        */}
+        <span
+          className="floor__consensus"
+          style={{ color: driftColor }}
+          aria-label="Live market consensus"
+        >
+          <span className="floor__consensus-label">consensus</span>
+          <b>{consensus != null ? consensus.toFixed(1) : '--'}</b>
+          <span aria-hidden="true">{driftGlyph}</span>
         </span>
         <div className="floor__board">
           {[0, 1, 2].map((i) => {
