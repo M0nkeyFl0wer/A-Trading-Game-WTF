@@ -53,6 +53,7 @@ export default function LobbyPage() {
           name: config.name,
           maxPlayers: Math.max(2, Math.min(8, config.rounds || 5)),
           displayName: currentUser?.displayName || 'Trader',
+          character: selectedCharacter,
         }),
       });
 
@@ -76,7 +77,7 @@ export default function LobbyPage() {
       setGamePhase('idle');
       throw err;
     }
-  }, [currentUser?.displayName, navigate, refresh, requireAuthToken, setGamePhase, voiceEnabled]);
+  }, [currentUser?.displayName, navigate, refresh, requireAuthToken, selectedCharacter, setGamePhase, voiceEnabled]);
 
   const handleTableJoin = useCallback(async (table: LobbyTableSummary, event?: MouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
@@ -88,8 +89,10 @@ export default function LobbyPage() {
       const response = await fetch(`/api/room/join/${table.id}`, {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
+        body: JSON.stringify({ character: selectedCharacter }),
       });
 
       const payload = await response.json().catch(() => ({}));
@@ -111,7 +114,7 @@ export default function LobbyPage() {
       setGamePhase('idle');
       setJoiningTableId(null);
     }
-  }, [navigate, refresh, requireAuthToken, setGamePhase, voiceEnabled]);
+  }, [navigate, refresh, requireAuthToken, selectedCharacter, setGamePhase, voiceEnabled]);
 
   const isLoading = status === 'loading';
 

@@ -83,7 +83,10 @@ router.post('/create', async (req: Request, res: Response) => {
     const name = parseRoomName(req.body?.name);
     const maxPlayers = parseMaxPlayers(req.body?.maxPlayers);
     const hostName = getDisplayName(req);
-    const room = await roomService.createRoom(name, maxPlayers, req.user.id, hostName);
+    const character = typeof req.body?.character === 'string'
+      ? sanitizeInput(req.body.character).slice(0, 16) || undefined
+      : undefined;
+    const room = await roomService.createRoom(name, maxPlayers, req.user.id, hostName, character);
     return res.status(201).json({ success: true, room });
   } catch (error) {
     return handleRoomError(error, res);
@@ -118,6 +121,9 @@ router.post('/join/:roomId', async (req: Request, res: Response) => {
     const room = await roomService.joinRoom(roomId, {
       id: req.user.id,
       name: getDisplayName(req),
+      character: typeof req.body?.character === 'string'
+        ? sanitizeInput(req.body.character).slice(0, 16) || undefined
+        : undefined,
     });
     return res.status(200).json({ success: true, room });
   } catch (error) {

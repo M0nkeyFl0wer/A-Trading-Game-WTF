@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useEffect, useState } from 'react';
 import { useGameStore, TradeEvent } from '../store';
 
 const currency = new Intl.NumberFormat('en-US', {
@@ -14,11 +14,28 @@ const tradeIcon = (trade: TradeEvent) => (trade.type === 'buy' ? '🟢' : '🔻'
 
 export default function TradeTape() {
   const trades = useGameStore(state => state.trades);
+  const listRef = useRef<HTMLOListElement>(null);
+  const prevCountRef = useRef(0);
+  const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
 
   const orderedTrades = useMemo(
     () => [...trades].sort((a, b) => b.timestamp - a.timestamp),
     [trades]
   );
+
+  useEffect(() => {
+    if (trades.length > prevCountRef.current && listRef.current) {
+      listRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      const newIds = new Set(
+        trades.slice(prevCountRef.current).map(t => t.id)
+      );
+      setFreshIds(newIds);
+      const timer = setTimeout(() => setFreshIds(new Set()), 2000);
+      prevCountRef.current = trades.length;
+      return () => clearTimeout(timer);
+    }
+    prevCountRef.current = trades.length;
+  }, [trades]);
 
   return (
     <section className="card" aria-labelledby="trade-tape-heading">
@@ -33,6 +50,7 @@ export default function TradeTape() {
         </p>
       ) : (
         <ol
+          ref={listRef}
           className="list-reset"
           style={{ maxHeight: 220, overflowY: 'auto' }}
           aria-live="polite"
@@ -47,7 +65,10 @@ export default function TradeTape() {
                 gridTemplateColumns: 'auto 1fr auto',
                 alignItems: 'center',
                 gap: 12,
-                background: 'rgba(15,23,42,0.55)',
+                background: freshIds.has(trade.id)
+                  ? 'rgba(99,102,241,0.25)'
+                  : 'rgba(15,23,42,0.55)',
+                transition: 'background 0.5s ease',
               }}
             >
               <span style={{ fontSize: '1.4rem' }}>{tradeIcon(trade)}</span>

@@ -98,8 +98,8 @@ export class RoomService {
     return doc.data() as RoomRecord;
   }
 
-  async createRoom(name: string, maxPlayers: number, hostId: string, hostName: string): Promise<RoomRecord> {
-    const hostPlayer = { ...createPlayer(hostId, hostName, 0), character: 'DEALER' };
+  async createRoom(name: string, maxPlayers: number, hostId: string, hostName: string, hostCharacter?: string): Promise<RoomRecord> {
+    const hostPlayer = { ...createPlayer(hostId, hostName, 0), character: hostCharacter || 'DEALER' };
     const now = Date.now();
     const room: RoomRecord = {
       id: createRoomId(),
